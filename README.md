@@ -21,7 +21,7 @@ The following models and operating systems have been validated by users
 
 ## Install
 
-Download the latest release from the [releases page](https://github.com/TheFehr/linux-zenbook-duo/releases).
+Download the latest release from the [releases page](https://github.com/TheFehr/zenbook-duo-linux-fedora-43/releases).
 Then run it with `--install`.
 
 **Notes:**
