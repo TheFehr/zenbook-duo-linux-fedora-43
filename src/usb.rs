@@ -108,3 +108,43 @@ fn check_initial_state(config: &Config) -> (Option<DeviceState>, Option<std::ffi
     println!("Initial check: Keyboard not found");
     (Some(DeviceState::Removed), None)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{DeviceState, update_if_not_yet};
+
+    #[test]
+    fn update_sets_from_none() {
+        let mut state: Option<DeviceState> = None;
+        update_if_not_yet(&mut state, DeviceState::Added);
+        assert_eq!(state, Some(DeviceState::Added));
+    }
+
+    #[test]
+    fn update_ignores_same_state_added() {
+        let mut state = Some(DeviceState::Added);
+        update_if_not_yet(&mut state, DeviceState::Added);
+        assert_eq!(state, Some(DeviceState::Added));
+    }
+
+    #[test]
+    fn update_ignores_same_state_removed() {
+        let mut state = Some(DeviceState::Removed);
+        update_if_not_yet(&mut state, DeviceState::Removed);
+        assert_eq!(state, Some(DeviceState::Removed));
+    }
+
+    #[test]
+    fn update_switches_added_to_removed() {
+        let mut state = Some(DeviceState::Added);
+        update_if_not_yet(&mut state, DeviceState::Removed);
+        assert_eq!(state, Some(DeviceState::Removed));
+    }
+
+    #[test]
+    fn update_switches_removed_to_added() {
+        let mut state = Some(DeviceState::Removed);
+        update_if_not_yet(&mut state, DeviceState::Added);
+        assert_eq!(state, Some(DeviceState::Added));
+    }
+}

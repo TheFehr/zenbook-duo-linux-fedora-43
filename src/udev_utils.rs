@@ -71,3 +71,50 @@ fn check_property(name: &str, val: &str, vendor_match: &mut bool, product_match:
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg() -> DeviceConfig {
+        DeviceConfig { vendor_id: "b05".into(), product_id: "1bf2".into() }
+    }
+
+    #[test]
+    fn vendor_id_matches_on_id_vendor_id() {
+        let mut v = false;
+        let mut p = false;
+        check_property("ID_VENDOR_ID", "b05", &mut v, &mut p, &cfg());
+        assert!(v);
+        assert!(!p);
+    }
+
+    #[test]
+    fn product_id_matches_on_id_model_id() {
+        let mut v = false;
+        let mut p = false;
+        check_property("ID_MODEL_ID", "1bf2", &mut v, &mut p, &cfg());
+        assert!(!v);
+        assert!(p);
+    }
+
+    #[test]
+    fn product_field_splits_and_matches() {
+        let mut v = false;
+        let mut p = false;
+        // Typical PRODUCT format is "vendor/product/version" but we only need first two
+        check_property("PRODUCT", "b05/1bf2/1234", &mut v, &mut p, &cfg());
+        assert!(v);
+        assert!(p);
+    }
+
+    #[test]
+    fn non_matching_values_do_not_set_flags() {
+        let mut v = false;
+        let mut p = false;
+        check_property("ID_VENDOR_ID", "abcd", &mut v, &mut p, &cfg());
+        check_property("ID_MODEL_ID", "ef12", &mut v, &mut p, &cfg());
+        assert!(!v);
+        assert!(!p);
+    }
+}

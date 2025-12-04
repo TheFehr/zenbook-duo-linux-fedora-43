@@ -79,3 +79,34 @@ pub fn get_config_path_for_home(home_override: Option<PathBuf>) -> Option<PathBu
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_values_are_as_expected() {
+        let cfg = Config::default();
+        assert_eq!(cfg.scale, 1.5);
+        assert_eq!(cfg.device.vendor_id, "b05");
+        assert_eq!(cfg.device.product_id, "1bf2");
+    }
+
+    #[test]
+    fn get_config_path_for_custom_home() {
+        let fake_home = std::path::PathBuf::from("/home/testuser");
+        let path = get_config_path_for_home(Some(fake_home)).unwrap();
+        // Should be $HOME/.config/zenbook-duo/config.toml
+        assert!(path.ends_with(".config/zenbook-duo/config.toml"));
+    }
+
+    #[test]
+    fn toml_round_trip_works() {
+        let cfg = Config::default();
+        let s = toml::to_string(&cfg).expect("serialize");
+        let de: Config = toml::from_str(&s).expect("deserialize");
+        assert_eq!(de.scale, cfg.scale);
+        assert_eq!(de.device.vendor_id, cfg.device.vendor_id);
+        assert_eq!(de.device.product_id, cfg.device.product_id);
+    }
+}
