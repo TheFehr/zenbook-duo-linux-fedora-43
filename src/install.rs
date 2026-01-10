@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::path::{Path};
 use std::process::Command;
 use directories::BaseDirs;
-use crate::config::{self, Config, DeviceConfig};
+use crate::config;
 
 pub fn install() {
     // 0. Pre-flight checks: Distro and DE
@@ -27,44 +27,8 @@ pub fn install() {
 
     println!("Installing Zenbook Duo Linux Tools...");
 
-    // 1. Get user input for scale
-    let mut scale = String::new();
-    print!("What would you like to use for monitor scale (1 = 100%, 1.5 = 150%, 2=200%) [Default: 1.5]? ");
-    io::stdout().flush().unwrap();
-    io::stdin().read_line(&mut scale).unwrap();
-    let scale_val = scale.trim();
-    let scale_f64: f64 = if scale_val.is_empty() {
-        1.5
-    } else {
-        scale_val.parse().unwrap_or(1.5)
-    };
-
-    // 2. Create Config
-    // We are running as the user, so get_config_path works perfectly.
-    let config_path = config::get_config_path().expect("Could not determine config path");
-    let config_dir = config_path.parent().expect("Config path has no parent");
-
-    if !config_dir.exists() {
-        fs::create_dir_all(config_dir).expect("Failed to create config dir");
-    }
-
-    let config_struct = Config {
-        scale: scale_f64,
-        device: DeviceConfig {
-            vendor_id: "0b05".to_string(),
-            product_id: "1bf2".to_string(),
-        },
-    };
-
-    let config_content = toml::to_string(&config_struct).expect("Failed to serialize config");
-
-    match fs::write(&config_path, config_content) {
-        Ok(_) => println!("Configuration created at {:?}", config_path),
-        Err(e) => {
-            eprintln!("Failed to write config file to {:?}: {}", config_path, e);
-            return;
-        }
-    }
+    // 1 & 2. Handle Config
+    config::load_config_interactive();
 
     // 3. Install Binary
     let current_exe = env::current_exe().expect("Failed to get current executable path");

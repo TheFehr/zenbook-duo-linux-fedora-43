@@ -1,9 +1,10 @@
-mod usb;
-mod udev_utils;
-mod monitor_handling;
 mod config;
 mod install;
+mod monitor_handling;
+mod udev_utils;
+mod usb;
 
+use crate::config::load_config;
 use std::env;
 use futures::{StreamExt, stream::FuturesUnordered};
 use tokio::task::LocalSet;
@@ -17,22 +18,32 @@ async fn main() {
         return;
     }
 
+    if args.len() > 1 && args[1] == "--backlight" {
+        usb::run_backlight_command(&args);
+        return;
+    }
+
+    let config = load_config();
+    let _ = usb::set_backlight_level(config.brightness as u8, &config);
+
     // LocalSet allows us to spawn !Send futures (like the udev monitor) on the current thread
     let local = LocalSet::new();
 
-    local.run_until(async move {
-        let watchers = FuturesUnordered::new();
+    local
+        .run_until(async move {
+            let watchers = FuturesUnordered::new();
 
-        // USB Watcher (Udev)
-        // We use spawn_local because udev::Monitor is not Send
-        watchers.push(tokio::task::spawn_local(async move {
-            usb::monitor_usb_events().await;
-        }));
+            // USB Watcher (Udev)
+            // We use spawn_local because udev::Monitor is not Send
+            watchers.push(tokio::task::spawn_local(async move {
+                usb::monitor_usb_events().await;
+            }));
 
-        println!("joining tasks :)");
+            println!("joining tasks :)");
 
-        watchers.for_each(|_| async {}).await;
+            watchers.for_each(|_| async {}).await;
 
-        println!("joined all tasks :)");
-    }).await;
+            println!("joined all tasks :)");
+        })
+        .await;
 }
