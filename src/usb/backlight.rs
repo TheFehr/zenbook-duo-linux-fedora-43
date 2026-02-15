@@ -5,6 +5,7 @@ use lazy_static::lazy_static;
 use std::sync::Mutex;
 use crate::config;
 use crate::config::Config;
+use log::{error};
 
 lazy_static! {
     static ref USB_MUTEX: Mutex<()> = Mutex::new(());
@@ -50,12 +51,12 @@ pub fn set_backlight_level(level: u8, config: &Config) -> Result<(), rusb::Error
     }
 
     let vendor_id = u16::from_str_radix(&config.device.vendor_id, 16).map_err(|_| {
-        eprintln!("Error: Invalid Vendor ID in config: '{}'", config.device.vendor_id);
+        error!("Invalid Vendor ID in config: '{}'", config.device.vendor_id);
         rusb::Error::InvalidParam
     })?;
 
     let product_id = u16::from_str_radix(&config.device.product_id, 16).map_err(|_| {
-        eprintln!("Error: Invalid Product ID in config: '{}'", config.device.product_id);
+        error!("Invalid Product ID in config: '{}'", config.device.product_id);
         rusb::Error::InvalidParam
     })?;
 

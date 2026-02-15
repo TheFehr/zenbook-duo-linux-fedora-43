@@ -8,6 +8,7 @@ use crate::config::load_config;
 use std::env;
 use futures::{StreamExt, stream::FuturesUnordered};
 use tokio::task::LocalSet;
+use log::{info, error, LevelFilter};
 
 #[tokio::main]
 async fn main() {
@@ -23,8 +24,32 @@ async fn main() {
         return;
     }
 
-    let config = load_config();
-    usb::backlight::set_backlight_level(config.brightness as u8, &config).expect("Failed to set initial backlight level");
+    let mut config = load_config();
+    
+    // Check for verbose flag in args
+    if args.iter().any(|arg| arg == "--verbose" || arg == "-v") {
+        config.verbose = true;
+    }
+
+    // Initialize logger
+    let log_level = if config.verbose {
+        LevelFilter::Debug
+    } else {
+        LevelFilter::Info
+    };
+
+    env_logger::Builder::from_default_env()
+        .filter_level(log_level)
+        .init();
+
+    let (current_state, _keyboard_devpath) = usb::check_initial_state(&config);
+    if current_state == Some(usb::DeviceState::Added) {
+        if let Err(e) = usb::backlight::set_backlight_level(config.brightness as u8, &config) {
+            error!("Failed to set initial backlight level: {:?}. (Are you running as root or have udev rules set up?)", e);
+        }
+    } else {
+        info!("Keyboard not detected at startup, skipping initial backlight setup.");
+    }
 
     // LocalSet allows us to spawn !Send futures (like the udev monitor) on the current thread
     let local = LocalSet::new();
@@ -44,7 +69,7 @@ async fn main() {
                 usb::monitor_special_keys(config_keys).await;
             }));
 
-            println!("Monitoring started (USB events & Special keys)...");
+            info!("Monitoring started (USB events & Special keys)...");
 
             watchers.for_each(|_| async {}).await;
         })

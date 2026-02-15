@@ -8,9 +8,10 @@ use crate::config::{load_config, Config};
 use crate::monitor_handling::handle_if_changed;
 use crate::udev_utils::{is_device_duo_keyboard, is_it_duo_keyboard};
 use crate::{udev_utils};
+use log::{info, error};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DeviceState {
+pub enum DeviceState {
     Added,
     Removed,
 }
@@ -37,7 +38,7 @@ pub async fn monitor_usb_events() {
     let mut async_monitor = AsyncFd::new(monitor).expect("Failed to create AsyncFd");
     // keyboard_devpath is already initialized above
 
-    println!("Started monitoring USB events...");
+    info!("Started monitoring USB events...");
 
     loop {
         // Wait for the monitor socket to be readable
@@ -90,7 +91,7 @@ fn update_if_not_yet(last_state: &mut Option<DeviceState>, new_state: DeviceStat
     }
 }
 
-fn check_initial_state(config: &Config) -> (Option<DeviceState>, Option<std::ffi::OsString>) {
+pub fn check_initial_state(config: &Config) -> (Option<DeviceState>, Option<std::ffi::OsString>) {
     let mut enumerator = udev::Enumerator::new().expect("Failed to create enumerator");
     enumerator
         .match_subsystem("usb")
@@ -102,7 +103,7 @@ fn check_initial_state(config: &Config) -> (Option<DeviceState>, Option<std::ffi
         // let's just copy the check logic here for the udev::Device.
 
         if is_device_duo_keyboard(&device, &config.device) {
-            println!("Initial check: Keyboard found at {:?}", device.devpath());
+            info!("Initial check: Keyboard found at {:?}", device.devpath());
             return (
                 Some(DeviceState::Added),
                 Some(device.devpath().to_os_string()),
@@ -110,7 +111,7 @@ fn check_initial_state(config: &Config) -> (Option<DeviceState>, Option<std::ffi
         }
     }
 
-    println!("Initial check: Keyboard not found");
+    info!("Initial check: Keyboard not found");
     (Some(DeviceState::Removed), None)
 }
 
@@ -125,7 +126,7 @@ pub async fn monitor_special_keys(config: Config) {
     loop {
         if let Some(path) = udev_utils::find_keyboard_event_path(&config.device) {
             if let Ok(mut device) = Device::open(&path) {
-                println!("Listening for special keys on {:?}", path);
+                info!("Listening for special keys on {:?}", path);
                 loop {
                     match device.fetch_events() {
                         Ok(events) => {
@@ -141,10 +142,10 @@ pub async fn monitor_special_keys(config: Config) {
                                     match backlight::set_backlight_level(next_level, &config) {
                                         Ok(()) => {
                                             current_level = next_level;
-                                            println!("Backlight toggled to level {}", current_level);
+                                            info!("Backlight toggled to level {}", current_level);
                                         }
                                         Err(e) => {
-                                            eprintln!("Failed to set backlight level {}: {:?}", next_level, e);
+                                            error!("Failed to set backlight level {}: {:?}", next_level, e);
                                         }
                                     }
                                 }

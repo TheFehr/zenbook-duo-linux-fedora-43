@@ -4,6 +4,7 @@ use std::time::Duration;
 use crate::config::Config;
 use crate::usb::backlight::set_backlight_level;
 use crate::usb::DeviceState;
+use log::{info, debug, error};
 
 pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceState>, config: &Config) {
     // --------------------------------------------------------------
@@ -31,12 +32,12 @@ pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceSt
         // ── Keyboard added → single‑monitor layout ─────────────────────
         (Some(DeviceState::Added), None) |
         (Some(DeviceState::Added), Some(DeviceState::Removed)) => {
-            println!("Zenbook Duo Keyboard detected!");
+            info!("Zenbook Duo Keyboard detected!");
 
             thread::sleep(Duration::from_millis(500));
 
             // Debug: Log the full command string
-            println!("DEBUG: Executing 'gdctl {}'", base_args.join(" "));
+            debug!("Executing 'gdctl {}'", base_args.join(" "));
 
             // No extra args – just use the base list
             let status = Command::new("gdctl")
@@ -48,14 +49,17 @@ pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceSt
             match status {
                 Ok(s) => {
                     if !s.success() {
-                        eprintln!("gdctl exited with status: {}", s);
+                        error!("gdctl exited with status: {}", s);
                     }
                 }
-                Err(e) => eprintln!("Failed to execute gdctl: {}", e),
+                Err(e) => error!("Failed to execute gdctl: {}", e),
             }
 
-            println!("Setting backlight level to {}", config.brightness);
-            set_backlight_level(config.brightness as u8, config).unwrap();
+            info!("Setting backlight level to {}", config.brightness);
+            match set_backlight_level(config.brightness as u8, config) {
+                Ok(()) => {}
+                Err(e) => error!("Failed to set backlight level: {}", e),
+            }
 
             ()
         }
@@ -63,7 +67,7 @@ pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceSt
         // ── Keyboard removed → dual‑monitor layout ───────────────────────
         (Some(DeviceState::Removed), None) |
         (Some(DeviceState::Removed), Some(DeviceState::Added)) => {
-            println!("Zenbook Duo Keyboard removed!");
+            info!("Zenbook Duo Keyboard removed!");
 
             // Extend a **copy** of the base args with the second monitor bits
             let mut dual_args = base_args.clone(); // cheap Vec clone
@@ -75,14 +79,12 @@ pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceSt
                 "eDP-2",
                 "--below",
                 "eDP-1",
-                "--mode",
-                "preferred",
             ]);
 
             thread::sleep(Duration::from_millis(500));
 
             // Debug: Log the full command string
-            println!("DEBUG: Executing 'gdctl {}'", dual_args.join(" "));
+            debug!("Executing 'gdctl {}'", dual_args.join(" "));
 
             let status = Command::new("gdctl")
                 .args(&dual_args)
@@ -93,10 +95,10 @@ pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceSt
             match status {
                 Ok(s) => {
                     if !s.success() {
-                        eprintln!("gdctl exited with status: {}", s);
+                        error!("gdctl exited with status: {}", s);
                     }
                 }
-                Err(e) => eprintln!("Failed to execute gdctl: {}", e),
+                Err(e) => error!("Failed to execute gdctl: {}", e),
             }
         }
 

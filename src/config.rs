@@ -8,6 +8,7 @@ use directories::ProjectDirs;
 pub struct Config {
     pub brightness: i8,
     pub scale: f64,
+    pub verbose: bool,
     pub device: DeviceConfig,
 }
 
@@ -22,6 +23,7 @@ impl Default for Config {
         Self {
             brightness: 1,
             scale: 1.5,
+            verbose: false,
             device: DeviceConfig {
                 vendor_id: "b05".to_string(),
                 product_id: "1bf2".to_string(),
@@ -39,7 +41,7 @@ pub fn save_config(config: &Config) {
 
         let content = toml::to_string(config).expect("Failed to serialize config");
         if let Err(e) = fs::write(&path, content) {
-            eprintln!("Failed to write config file to {:?}: {}", path, e);
+            log::error!("Failed to write config file to {:?}: {}", path, e);
         }
     }
 }
@@ -78,6 +80,11 @@ fn load_config_internal(interactive: bool) -> Config {
                 } else if interactive {
                     config.brightness = prompt_brightness();
                     needs_save = true;
+                }
+
+                // Verbose
+                if let Some(v) = table.get("verbose").and_then(|v| v.as_bool()) {
+                    config.verbose = v;
                 }
 
                 // Device
@@ -159,6 +166,7 @@ mod tests {
         let cfg = Config::default();
         assert_eq!(cfg.brightness, 1);
         assert_eq!(cfg.scale, 1.5);
+        assert_eq!(cfg.verbose, false);
         assert_eq!(cfg.device.vendor_id, "b05");
         assert_eq!(cfg.device.product_id, "1bf2");
     }
@@ -178,6 +186,7 @@ mod tests {
         let de: Config = toml::from_str(&s).expect("deserialize");
         assert_eq!(de.brightness, cfg.brightness);
         assert_eq!(de.scale, cfg.scale);
+        assert_eq!(de.verbose, cfg.verbose);
         assert_eq!(de.device.vendor_id, cfg.device.vendor_id);
         assert_eq!(de.device.product_id, cfg.device.product_id);
     }
