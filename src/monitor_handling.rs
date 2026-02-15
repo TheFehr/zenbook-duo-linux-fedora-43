@@ -21,8 +21,6 @@ pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceSt
         &scale,
         "--monitor",
         "eDP-1",
-        "--mode",
-        "preferred",
     ];
 
     // --------------------------------------------------------------
