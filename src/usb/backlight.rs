@@ -1,10 +1,50 @@
 use std::env;
 use std::time::Duration;
-use rusb::{Context, UsbContext};
+use rusb::{Context, UsbContext, DeviceHandle};
+use lazy_static::lazy_static;
+use std::sync::Mutex;
 use crate::config;
 use crate::config::Config;
 
+lazy_static! {
+    static ref USB_MUTEX: Mutex<()> = Mutex::new(());
+}
+
+struct InterfaceGuard<'a, T: UsbContext> {
+    handle: &'a DeviceHandle<T>,
+    interface: u8,
+    detached: bool,
+}
+
+impl<'a, T: UsbContext> InterfaceGuard<'a, T> {
+    fn new(handle: &'a DeviceHandle<T>, interface: u8) -> Result<Self, rusb::Error> {
+        let detached = handle.kernel_driver_active(interface).unwrap_or(false);
+        if detached {
+            handle.detach_kernel_driver(interface)?;
+        }
+
+        handle.claim_interface(interface)?;
+
+        Ok(InterfaceGuard {
+            handle,
+            interface,
+            detached,
+        })
+    }
+}
+
+impl<'a, T: UsbContext> Drop for InterfaceGuard<'a, T> {
+    fn drop(&mut self) {
+        let _ = self.handle.release_interface(self.interface);
+        if self.detached {
+            let _ = self.handle.attach_kernel_driver(self.interface);
+        }
+    }
+}
+
 pub fn set_backlight_level(level: u8, config: &Config) -> Result<(), rusb::Error> {
+    let _lock = USB_MUTEX.lock().unwrap();
+
     if level > 3 {
         return Err(rusb::Error::InvalidParam);
     }
@@ -19,6 +59,22 @@ pub fn set_backlight_level(level: u8, config: &Config) -> Result<(), rusb::Error
         rusb::Error::InvalidParam
     })?;
 
+    let mut retries = 3;
+    while retries > 0 {
+        match set_backlight_internal(level, vendor_id, product_id) {
+            Ok(_) => return Ok(()),
+            Err(rusb::Error::Busy) if retries > 1 => {
+                retries -= 1;
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(rusb::Error::Busy)
+}
+
+fn set_backlight_internal(level: u8, vendor_id: u16, product_id: u16) -> Result<(), rusb::Error> {
     let context = Context::new()?;
     let handle = context.open_device_with_vid_pid(vendor_id, product_id)
         .ok_or(rusb::Error::NoDevice)?;
@@ -34,26 +90,17 @@ pub fn set_backlight_level(level: u8, config: &Config) -> Result<(), rusb::Error
     data[3] = 0xC4;
     data[4] = level;
 
-    let has_kernel_driver = handle.kernel_driver_active(w_index as u8).unwrap_or(false);
-    if has_kernel_driver {
-        handle.detach_kernel_driver(w_index as u8)?;
-    }
+    {
+        let _guard = InterfaceGuard::new(&handle, w_index as u8)?;
 
-    handle.claim_interface(w_index as u8)?;
-
-    handle.write_control(
-        0x21, // bmRequestType
-        0x09, // bRequest (SET_REPORT)
-        w_value,
-        w_index,
-        &data,
-        Duration::from_secs(1),
-    )?;
-
-    handle.release_interface(w_index as u8)?;
-
-    if has_kernel_driver {
-        let _ = handle.attach_kernel_driver(w_index as u8);
+        handle.write_control(
+            0x21, // bmRequestType
+            0x09, // bRequest (SET_REPORT)
+            w_value,
+            w_index,
+            &data,
+            Duration::from_secs(1),
+        )?;
     }
 
     Ok(())

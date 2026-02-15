@@ -20,6 +20,8 @@ pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceSt
         &scale,
         "--monitor",
         "eDP-1",
+        "--mode",
+        "preferred",
     ];
 
     // --------------------------------------------------------------
@@ -73,6 +75,8 @@ pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceSt
                 "eDP-2",
                 "--below",
                 "eDP-1",
+                "--mode",
+                "preferred",
             ]);
 
             thread::sleep(Duration::from_millis(500));
