@@ -45,6 +45,29 @@ pub fn is_it_duo_keyboard(event: &Event, known_devpath: &Option<OsString>, confi
     }
 }
 
+pub fn find_keyboard_event_path(config: &DeviceConfig) -> Option<std::path::PathBuf> {
+    let mut enumerator = udev::Enumerator::new().ok()?;
+    enumerator.match_subsystem("input").ok()?;
+
+    for device in enumerator.scan_devices().ok()? {
+        // We look for a parent device that matches our keyboard VID/PID
+        let mut current_dev = Some(device.clone());
+        while let Some(dev) = current_dev {
+            if is_device_duo_keyboard(&dev, config) {
+                // If we found the keyboard parent, the original 'device'
+                // is likely the /dev/input/eventX node
+                if let Some(devnode) = device.devnode() {
+                    if devnode.to_string_lossy().contains("event") {
+                        return Some(devnode.to_path_buf());
+                    }
+                }
+            }
+            current_dev = dev.parent();
+        }
+    }
+    None
+}
+
 fn check_property(name: &str, val: &str, vendor_match: &mut bool, product_match: &mut bool, config: &DeviceConfig) {
     match name {
         "ID_VENDOR_ID" | "ID_VENDOR" => {

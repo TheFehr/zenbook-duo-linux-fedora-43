@@ -19,12 +19,12 @@ async fn main() {
     }
 
     if args.len() > 1 && args[1] == "--backlight" {
-        usb::run_backlight_command(&args);
+        usb::backlight::run_backlight_command(&args);
         return;
     }
 
     let config = load_config();
-    let _ = usb::set_backlight_level(config.brightness as u8, &config);
+    usb::backlight::set_backlight_level(config.brightness as u8, &config).expect("Failed to set initial backlight level");
 
     // LocalSet allows us to spawn !Send futures (like the udev monitor) on the current thread
     let local = LocalSet::new();
@@ -33,17 +33,20 @@ async fn main() {
         .run_until(async move {
             let watchers = FuturesUnordered::new();
 
-            // USB Watcher (Udev)
-            // We use spawn_local because udev::Monitor is not Send
+            // 1. USB Connection Watcher (Display handling)
             watchers.push(tokio::task::spawn_local(async move {
                 usb::monitor_usb_events().await;
             }));
 
-            println!("joining tasks :)");
+            // 2. Keyboard Key Watcher (Backlight F4 handling)
+            let config_keys = config.clone();
+            watchers.push(tokio::task::spawn_local(async move {
+                usb::monitor_special_keys(config_keys).await;
+            }));
+
+            println!("Monitoring started (USB events & Special keys)...");
 
             watchers.for_each(|_| async {}).await;
-
-            println!("joined all tasks :)");
         })
         .await;
 }

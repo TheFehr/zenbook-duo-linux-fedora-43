@@ -5,9 +5,10 @@ edition = "2024"
 
 [dependencies]
 directories = "5.0"
+evdev = "0.12.1"
 futures = "*"
+rusb = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 toml = "0.8"
 udev = "0.7.0"
-rusb = "0.9"
