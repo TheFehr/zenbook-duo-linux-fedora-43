@@ -7,7 +7,7 @@ use udev::{EventType, MonitorBuilder};
 use crate::config::{load_config, Config};
 use crate::monitor_handling::handle_if_changed;
 use crate::udev_utils::{is_device_duo_keyboard, is_it_duo_keyboard};
-use crate::{config, udev_utils};
+use crate::{udev_utils};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DeviceState {
