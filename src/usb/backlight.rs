@@ -59,19 +59,6 @@ pub fn set_backlight_level(level: u8, config: &Config) -> Result<(), rusb::Error
     Ok(())
 }
 
-pub fn toggle_backlight(config: &Config) -> Result<u8, rusb::Error> {
-    // Note: For a production app, you might want to store the
-    // "active" brightness in a thread-safe way, but cycling
-    // based on config or reading it back is a good start.
-    let current_level = config.brightness as u8;
-    let next_level = (current_level + 1) % 4;
-
-    // We assume the caller handles the result
-    set_backlight_level(next_level, config)?;
-    println!("Backlight toggled to level {}", next_level);
-    Ok(next_level)
-}
-
 pub fn run_backlight_command(args: &[String]) {
     if args.len() < 2 {
         eprintln!("Usage: zenbook-duo --backlight <0-3>");

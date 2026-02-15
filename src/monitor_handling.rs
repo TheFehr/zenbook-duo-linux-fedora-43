@@ -2,6 +2,7 @@ use std::{thread};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use crate::config::Config;
+use crate::usb::backlight::set_backlight_level;
 use crate::usb::DeviceState;
 
 pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceState>, config: &Config) {
@@ -50,6 +51,11 @@ pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceSt
                 }
                 Err(e) => eprintln!("Failed to execute gdctl: {}", e),
             }
+
+            println!("Setting backlight level to {}", config.brightness);
+            set_backlight_level(config.brightness as u8, config).unwrap();
+
+            ()
         }
 
         // ── Keyboard removed → dual‑monitor layout ───────────────────────

@@ -1,7 +1,7 @@
 pub(crate) mod backlight;
 
-use evdev::Device;
-use std::time::Duration;
+use evdev::{Device};
+use std::time::{Duration, Instant};
 use tokio::io::unix::AsyncFd;
 use udev::{EventType, MonitorBuilder};
 use crate::config::{load_config, Config};
@@ -114,7 +114,14 @@ fn check_initial_state(config: &Config) -> (Option<DeviceState>, Option<std::ffi
     (Some(DeviceState::Removed), None)
 }
 
-pub async fn monitor_special_keys(config: config::Config) {
+pub async fn monitor_special_keys(config: Config) {
+    // Keep the "active" level locally; config.brightness is just the default.
+    let mut current_level: u8 = (config.brightness as u8).min(3);
+
+    // Debounce: ignore additional matching events right after a toggle.
+    let mut last_toggle_at: Option<Instant> = None;
+    let debounce_window = Duration::from_millis(250);
+
     loop {
         if let Some(path) = udev_utils::find_keyboard_event_path(&config.device) {
             if let Ok(mut device) = Device::open(&path) {
@@ -123,10 +130,23 @@ pub async fn monitor_special_keys(config: config::Config) {
                     match device.fetch_events() {
                         Ok(events) => {
                             for event in events {
-                                // Intercepting the scancode (MSC_SCAN)
-                                // that appeared as -1 in your logs.
-                                if event.event_type() == evdev::EventType::MISC && event.value() == -1 {
-                                    let _ = backlight::toggle_backlight(&config);
+                                if event.event_type() == evdev::EventType::MISC && event.value() == 458813 {
+                                    let now = Instant::now();
+                                    if last_toggle_at.is_some_and(|t| now.duration_since(t) < debounce_window) {
+                                        continue;
+                                    }
+                                    last_toggle_at = Some(now);
+
+                                    let next_level = (current_level + 1) % 4;
+                                    match backlight::set_backlight_level(next_level, &config) {
+                                        Ok(()) => {
+                                            current_level = next_level;
+                                            println!("Backlight toggled to level {}", current_level);
+                                        }
+                                        Err(e) => {
+                                            eprintln!("Failed to set backlight level {}: {:?}", next_level, e);
+                                        }
+                                    }
                                 }
                             }
                         }
