@@ -1,6 +1,8 @@
 use udev::Event;
 use std::ffi::OsString;
 use std::path::Path;
+use std::fs;
+use std::process::Command;
 use crate::config::DeviceConfig;
 
 pub fn is_device_duo_keyboard(device: &udev::Device, config: &DeviceConfig) -> bool {
@@ -92,6 +94,131 @@ fn check_property(name: &str, val: &str, vendor_match: &mut bool, product_match:
             }
         }
         _ => {}
+    }
+}
+
+pub fn ensure_touch_rule() {
+    let mut found = false;
+    if let Ok(mut enumerator) = udev::Enumerator::new() {
+        if let Ok(_) = enumerator.match_subsystem("input") {
+            if let Ok(devices) = enumerator.scan_devices() {
+                for device in devices {
+                    let mut vendor_match = false;
+                    let mut product_match = false;
+
+                    for prop in device.properties() {
+                        if let (Some(name), Some(val)) = (prop.name().to_str(), prop.value().to_str()) {
+                            if (name == "ID_VENDOR_ID" || name == "ID_VENDOR") && val == "04f3" {
+                                vendor_match = true;
+                            }
+                            if (name == "ID_MODEL_ID" || name == "ID_MODEL") && val == "4448" {
+                                product_match = true;
+                            }
+                        }
+                    }
+
+                    if vendor_match && product_match {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if !found {
+        println!("Lower touchscreen (Vendor 04f3, Model 4448) not detected. Skipping udev touch rule installation.");
+        return;
+    }
+
+    println!("Lower touchscreen detected. Installing udev touch rule...");
+    let tmp_path = Path::new("/tmp/99-zenbook-touch.rules");
+    let target_path = "/etc/udev/rules.d/99-zenbook-touch.rules";
+    let rule_content = "ENV{ID_INPUT_TOUCHSCREEN}==\"1\", ENV{ID_VENDOR_ID}==\"04f3\", ENV{ID_MODEL_ID}==\"4448\", ENV{LIBINPUT_CALIBRATION_MATRIX}=\"1 0 0 0 0.5 0.5 0 0 1\"\n";
+
+    if let Err(e) = fs::write(tmp_path, rule_content) {
+        eprintln!("Failed to write temporary udev rule: {}", e);
+        return;
+    }
+
+    let mv_status = Command::new("sudo")
+        .arg("mv")
+        .arg("-f")
+        .arg(tmp_path)
+        .arg(target_path)
+        .status();
+
+    match mv_status {
+        Ok(s) if s.success() => {},
+        Ok(s) => {
+            eprintln!("Failed to move udev rule into place (exit code {}).", s);
+            return;
+        }
+        Err(e) => {
+            eprintln!("Failed to execute sudo mv for udev rule: {}", e);
+            return;
+        }
+    }
+
+    let reload_status = Command::new("sudo")
+        .args(&["udevadm", "control", "--reload-rules"])
+        .status();
+
+    match reload_status {
+        Ok(s) if !s.success() => eprintln!("Failed to reload udev rules (exit code {}).", s),
+        Err(e) => eprintln!("Failed to execute udevadm control: {}", e),
+        _ => {}
+    }
+
+    let trigger_status = Command::new("sudo")
+        .args(&["udevadm", "trigger"])
+        .status();
+
+    match trigger_status {
+        Ok(s) if s.success() => println!("Udev touch rule installed successfully."),
+        Ok(s) => eprintln!("Failed to trigger udev rules (exit code {}).", s),
+        Err(e) => eprintln!("Failed to execute udevadm trigger: {}", e),
+    }
+}
+
+pub fn remove_touch_rule() {
+    println!("Removing udev touch rule...");
+    let target_path = "/etc/udev/rules.d/99-zenbook-touch.rules";
+
+    if Path::new(target_path).exists() {
+        let rm_status = Command::new("sudo")
+            .arg("rm")
+            .arg("-f")
+            .arg(target_path)
+            .status();
+
+        match rm_status {
+            Ok(s) if s.success() => println!("Removed {}.", target_path),
+            Ok(s) => eprintln!("Failed to remove udev rule (exit code {}).", s),
+            Err(e) => eprintln!("Failed to execute sudo rm for udev rule: {}", e),
+        }
+
+        let reload_status = Command::new("sudo")
+            .args(&["udevadm", "control", "--reload-rules"])
+            .status();
+
+        match reload_status {
+            Ok(s) if !s.success() => eprintln!("Failed to reload udev rules (exit code {}).", s),
+            Err(e) => eprintln!("Failed to execute udevadm control: {}", e),
+            _ => {}
+        }
+
+        let trigger_status = Command::new("sudo")
+            .args(&["udevadm", "trigger"])
+            .status();
+
+        match trigger_status {
+            Ok(s) if s.success() => println!("Udev touch rule removed successfully."),
+            Ok(s) => eprintln!("Failed to trigger udev rules (exit code {}).", s),
+            Err(e) => eprintln!("Failed to execute udevadm trigger: {}", e),
+        }
+    } else {
+        println!("Udev touch rule not found. Skipping removal.");
     }
 }
 

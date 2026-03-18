@@ -99,6 +99,7 @@ pub fn install() {
         }
     }
 
+    crate::udev_utils::ensure_touch_rule();
 
     // 4. Create Systemd User Service
     // We install it to ~/.config/systemd/user/ so no sudo needed
@@ -217,4 +218,67 @@ fn check_requirements() -> &'static str {
         println!("It seems you are running an unsupported environment.");
         std::process::exit(1);
     }
+}
+
+pub fn uninstall() {
+    println!("Uninstalling Zenbook Duo Linux Tools...");
+
+    // 1. Delete the udev rule
+    crate::udev_utils::remove_touch_rule();
+
+    // 2. Stop and disable the systemd user service
+    println!("Stopping and disabling systemd user service...");
+    let _ = Command::new("systemctl")
+        .args(&["--user", "stop", "zenbook-duo.service"])
+        .status();
+    let _ = Command::new("systemctl")
+        .args(&["--user", "disable", "zenbook-duo.service"])
+        .status();
+
+    let base_dirs = BaseDirs::new().expect("Could not determine base directories");
+    let service_path = base_dirs.config_dir().join("systemd").join("user").join("zenbook-duo.service");
+    
+    if service_path.exists() {
+        if let Err(e) = fs::remove_file(&service_path) {
+            eprintln!("Failed to remove service file at {:?}: {}", service_path, e);
+        } else {
+            println!("Removed systemd service file.");
+        }
+    }
+
+    let _ = Command::new("systemctl")
+        .args(&["--user", "daemon-reload"])
+        .status();
+
+    // 3. Delete configuration files/directories
+    if let Some(config_path) = crate::config::get_config_path() {
+        if let Some(config_dir) = config_path.parent() {
+            if config_dir.exists() {
+                if let Err(e) = fs::remove_dir_all(config_dir) {
+                    eprintln!("Failed to remove configuration directory {:?}: {}", config_dir, e);
+                } else {
+                    println!("Removed configuration directory {:?}", config_dir);
+                }
+            }
+        }
+    }
+
+    // 4. Remove the binary from the installation path
+    let install_path = Path::new("/usr/local/bin/zenbook-duo");
+    if install_path.exists() {
+        println!("Removing binary from {:?}...", install_path);
+        let rm_status = Command::new("sudo")
+            .arg("rm")
+            .arg("-f")
+            .arg(install_path)
+            .status();
+
+        match rm_status {
+            Ok(s) if s.success() => println!("Binary removed successfully."),
+            Ok(s) => eprintln!("Failed to remove binary (exit code {}).", s),
+            Err(e) => eprintln!("Failed to execute sudo rm: {}", e),
+        }
+    }
+
+    println!("Uninstallation complete!");
 }
