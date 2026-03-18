@@ -4,30 +4,61 @@ mod monitor_handling;
 mod udev_utils;
 mod usb;
 
+use clap::{Parser, Subcommand};
 use crate::config::load_config;
-use std::env;
 use futures::{StreamExt, stream::FuturesUnordered};
 use tokio::task::LocalSet;
 use log::{info, error, LevelFilter};
 
+#[derive(Parser)]
+#[command(name = "zenbook-duo", about = "Zenbook Duo Linux Tools")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
+    /// Enable verbose logging
+    #[arg(short, long)]
+    verbose: bool,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Install the daemon and configure udev rules
+    Install,
+    /// Uninstall the daemon, service, and rules
+    Uninstall,
+    /// Control the keyboard backlight
+    Backlight {
+        /// Set the keyboard backlight level (0-3)
+        level: Option<u8>,
+    },
+}
+
 #[tokio::main]
 async fn main() {
-    let args: Vec<String> = env::args().collect();
+    let cli = Cli::parse();
 
-    if args.len() > 1 && args[1] == "--install" {
-        install::install();
-        return;
-    }
-
-    if args.len() > 1 && args[1] == "--backlight" {
-        usb::backlight::run_backlight_command(&args);
-        return;
+    if let Some(command) = &cli.command {
+        match command {
+            Commands::Install => {
+                install::install();
+                return;
+            }
+            Commands::Uninstall => {
+                install::uninstall();
+                return;
+            }
+            Commands::Backlight { level } => {
+                usb::backlight::run_backlight_command(*level);
+                return;
+            }
+        }
     }
 
     let mut config = load_config();
     
     // Check for verbose flag in args
-    if args.iter().any(|arg| arg == "--verbose" || arg == "-v") {
+    if cli.verbose {
         config.verbose = true;
     }
 
