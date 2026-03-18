@@ -165,7 +165,7 @@ WantedBy=default.target
 /// Reads /etc/os-release and warns (with a prompt) if the host is not Fedora Linux 43.
 /// Determines the desktop environment from the `XDG_CURRENT_DESKTOP` environment variable
 /// (case-insensitive). If that variable is not decisive, falls back to checking for the
-/// presence of `/usr/bin/gnome-shell` or `/usr/bin/kscreen-doctor`. Exits the process
+/// presence of `/usr/bin/gdctl` or `/usr/bin/kscreen-doctor`. Exits the process
 /// with status 1 when the user declines to continue after the distro warning or when no
 /// supported desktop environment can be detected.
 ///
