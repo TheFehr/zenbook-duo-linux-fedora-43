@@ -208,7 +208,7 @@ fn check_requirements() -> &'static str {
     }
 
     // Fallbacks
-    if Path::new("/usr/bin/gnome-shell").exists() {
+    if Path::new("/usr/bin/gdctl").exists() {
         return "GNOME";
     } else if Path::new("/usr/bin/kscreen-doctor").exists() {
         return "KDE";
