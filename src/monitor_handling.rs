@@ -36,13 +36,19 @@ impl DisplayManager for GnomeManager {
         ];
         debug!("Executing 'gdctl {}'", base_args.join(" "));
         
-        if let Err(e) = Command::new("gdctl")
+        match Command::new("gdctl")
             .args(&base_args)
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
-            .status() 
+            .status()
         {
-            error!("Failed to execute gdctl: {}", e);
+            Ok(status) if !status.success() => {
+                error!("gdctl exited with status: {}", status);
+            }
+            Err(e) => {
+                error!("Failed to execute gdctl: {}", e);
+            }
+            _ => {}
         }
     }
 
