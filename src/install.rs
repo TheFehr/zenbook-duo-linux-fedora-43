@@ -6,9 +6,23 @@ use std::process::Command;
 use directories::BaseDirs;
 use crate::config;
 
+/// Install the Zenbook Duo CLI, create a per-user systemd service for it, and enable/start that service.
+///
+/// This performs interactive preflight checks (distribution and desktop environment), optionally prompts
+/// the user if running as root, loads or creates configuration interactively, installs the current
+/// executable to /usr/local/bin/zenbook-duo (using a temporary file and sudo for copying/replacing),
+/// writes a systemd user unit under ~/.config/systemd/user/zenbook-duo.service configured with the
+/// detected desktop environment, reloads the user systemd daemon, and enables/starts the service.
+///
+/// # Examples
+///
+/// ```no_run
+/// // Run this as the intended user (not root) to install and enable the service.
+/// install();
+/// ```
 pub fn install() {
     // 0. Pre-flight checks: Distro and DE
-    check_requirements();
+    let desktop_env = check_requirements();
 
     // Check if we are root. If so, warn the user.
     // We prefer running as a normal user to set up config correctly.
@@ -107,12 +121,12 @@ After=graphical-session.target
 ExecStart={}
 Restart=always
 RestartSec=5
-Environment=XDG_CURRENT_DESKTOP=GNOME
+Environment=XDG_CURRENT_DESKTOP={}
 
 [Install]
 WantedBy=default.target
 "#,
-        install_path.display()
+        install_path.display(), desktop_env
     );
 
     match fs::write(&service_path, service_content) {
@@ -146,7 +160,27 @@ WantedBy=default.target
     println!("Installation complete!");
 }
 
-fn check_requirements() {
+/// Detects the desktop environment and performs a Fedora release compatibility check.
+///
+/// Reads /etc/os-release and warns (with a prompt) if the host is not Fedora Linux 43.
+/// Determines the desktop environment from the `XDG_CURRENT_DESKTOP` environment variable
+/// (case-insensitive). If that variable is not decisive, falls back to checking for the
+/// presence of `/usr/bin/gdctl` or `/usr/bin/kscreen-doctor`. Exits the process
+/// with status 1 when the user declines to continue after the distro warning or when no
+/// supported desktop environment can be detected.
+///
+/// # Returns
+///
+/// `"GNOME"` if a GNOME desktop environment is detected, `"KDE"` if a KDE Plasma environment is detected.
+///
+/// # Examples
+///
+/// ```
+/// // The return value will be either "GNOME" or "KDE" depending on the environment.
+/// let env = check_requirements();
+/// assert!(env == "GNOME" || env == "KDE");
+/// ```
+fn check_requirements() -> &'static str {
     // Check Distro
     if let Ok(os_release) = fs::read_to_string("/etc/os-release") {
         if !os_release.contains("Fedora Linux 43") {
@@ -165,17 +199,22 @@ fn check_requirements() {
     }
 
     // Check Desktop Environment
-    let desktop = env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
-    let is_gnome = if !desktop.is_empty() {
-        desktop.to_uppercase().contains("GNOME")
-    } else {
-        // Only check fallback if we suspect we are not in a clear session
-        Path::new("/usr/bin/gnome-shell").exists()
-    };
+    let desktop = env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_uppercase();
+    
+    if desktop.contains("GNOME") {
+        return "GNOME";
+    } else if desktop.contains("KDE") {
+        return "KDE";
+    }
 
-    if !is_gnome {
-        println!("Error: This tool relies on GNOME specific tools (gdctl).");
-        println!("It seems you are not running GNOME.");
+    // Fallbacks
+    if Path::new("/usr/bin/gdctl").exists() {
+        return "GNOME";
+    } else if Path::new("/usr/bin/kscreen-doctor").exists() {
+        return "KDE";
+    } else {
+        println!("Error: This tool relies on GNOME (gdctl) or KDE Plasma (kscreen-doctor).");
+        println!("It seems you are running an unsupported environment.");
         std::process::exit(1);
     }
 }
