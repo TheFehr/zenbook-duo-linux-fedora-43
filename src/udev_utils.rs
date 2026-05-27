@@ -1,7 +1,10 @@
-use udev::Event;
-use std::ffi::OsString;
-use std::path::Path;
 use crate::config::DeviceConfig;
+use std::ffi::OsString;
+use std::io::Write;
+use std::path::Path;
+use std::process::Command;
+use tempfile::NamedTempFile;
+use udev::Event;
 
 pub fn is_device_duo_keyboard(device: &udev::Device, config: &DeviceConfig) -> bool {
     let mut vendor_match = false;
@@ -15,7 +18,11 @@ pub fn is_device_duo_keyboard(device: &udev::Device, config: &DeviceConfig) -> b
     vendor_match && product_match
 }
 
-pub fn is_it_duo_keyboard(event: &Event, known_devpath: &Option<OsString>, config: &DeviceConfig) -> Option<OsString> {
+pub fn is_it_duo_keyboard(
+    event: &Event,
+    known_devpath: &Option<OsString>,
+    config: &DeviceConfig,
+) -> Option<OsString> {
     // If we know the devpath (from a previous ADD), and this is a REMOVE event matching that path, return it.
     if let Some(known) = known_devpath {
         if event.event_type() == udev::EventType::Remove {
@@ -23,7 +30,10 @@ pub fn is_it_duo_keyboard(event: &Event, known_devpath: &Option<OsString>, confi
             let event_path = Path::new(event.devpath());
 
             // Check if paths match, or if one is a sub-path of the other (e.g. interface vs device)
-            if known_path == event_path || known_path.starts_with(event_path) || event_path.starts_with(known_path) {
+            if known_path == event_path
+                || known_path.starts_with(event_path)
+                || event_path.starts_with(known_path)
+            {
                 return Some(known.clone());
             }
         }
@@ -68,7 +78,13 @@ pub fn find_keyboard_event_path(config: &DeviceConfig) -> Option<std::path::Path
     None
 }
 
-fn check_property(name: &str, val: &str, vendor_match: &mut bool, product_match: &mut bool, config: &DeviceConfig) {
+fn check_property(
+    name: &str,
+    val: &str,
+    vendor_match: &mut bool,
+    product_match: &mut bool,
+    config: &DeviceConfig,
+) {
     match name {
         "ID_VENDOR_ID" | "ID_VENDOR" => {
             if val.trim().eq_ignore_ascii_case(&config.vendor_id) {
@@ -95,12 +111,152 @@ fn check_property(name: &str, val: &str, vendor_match: &mut bool, product_match:
     }
 }
 
+pub fn ensure_touch_rule() {
+    let mut found = false;
+    let target_v = "04f3";
+    let target_p = "4448";
+
+    if let Ok(mut enumerator) = udev::Enumerator::new() {
+        let _ = enumerator.match_subsystem("input");
+        if let Ok(devices) = enumerator.scan_devices() {
+            for device in devices {
+                for prop in device.properties() {
+                    if let Some(val) = prop.value().to_str() {
+                        let v = val.to_lowercase();
+
+                        // Check 1: Standard IDs (with and without 0x)
+                        let is_v = v == target_v || v == format!("0x{}", target_v);
+                        let is_p = v == target_p || v == format!("0x{}", target_p);
+
+                        // Check 2: The PRODUCT string (e.g. "18/4f3/4448/100")
+                        let is_product_match = v.contains(target_v) && v.contains(target_p);
+
+                        if is_v || is_p || is_product_match {
+                            // Verify this is actually the touchscreen and not the touchpad
+                            if device.sysname().to_string_lossy().contains("event") {
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if found { break; }
+            }
+        }
+    }
+
+    if !found {
+        println!("Lower touchscreen not detected. Mapping will be installed anyway for future connections.");
+    }
+
+    println!("Installing udev touch rule...");
+    let target_path = "/etc/udev/rules.d/99-zenbook-touch.rules";
+    let rule_content = "ENV{ID_INPUT_TOUCHSCREEN}==\"1\", ENV{ID_VENDOR_ID}==\"04f3\", ENV{ID_MODEL_ID}==\"4448\", ENV{LIBINPUT_CALIBRATION_MATRIX}=\"1 0 0 0 0.5 0.5 0 0 1\"\n";
+
+    let mut tmp_file = match NamedTempFile::new() {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Failed to create secure temporary file: {}", e);
+            return;
+        }
+    };
+
+    if let Err(e) = tmp_file.write_all(rule_content.as_bytes()) {
+        eprintln!("Failed to write to temporary file: {}", e);
+        return;
+    }
+
+    if let Err(e) = tmp_file.flush() {
+        eprintln!("Failed to flush temporary file: {}", e);
+        return;
+    }
+
+    let mv_status = Command::new("sudo")
+        .arg("mv")
+        .arg("-f")
+        .arg(tmp_file.path())
+        .arg(target_path)
+        .status();
+
+    match mv_status {
+        Ok(s) if s.success() => {}
+        Ok(s) => {
+            eprintln!("Failed to move udev rule into place (exit code {}).", s);
+            return;
+        }
+        Err(e) => {
+            eprintln!("Failed to execute sudo mv for udev rule: {}", e);
+            return;
+        }
+    }
+
+    let reload_status = Command::new("sudo")
+        .args(&["udevadm", "control", "--reload-rules"])
+        .status();
+
+    match reload_status {
+        Ok(s) if !s.success() => eprintln!("Failed to reload udev rules (exit code {}).", s),
+        Err(e) => eprintln!("Failed to execute udevadm control: {}", e),
+        _ => {}
+    }
+
+    let trigger_status = Command::new("sudo").args(&["udevadm", "trigger"]).status();
+
+    match trigger_status {
+        Ok(s) if s.success() => println!("Udev touch rule installed successfully."),
+        Ok(s) => eprintln!("Failed to trigger udev rules (exit code {}).", s),
+        Err(e) => eprintln!("Failed to execute udevadm trigger: {}", e),
+    }
+}
+
+pub fn remove_touch_rule() {
+    println!("Removing udev touch rule...");
+    let target_path = "/etc/udev/rules.d/99-zenbook-touch.rules";
+
+    if Path::new(target_path).exists() {
+        let rm_status = Command::new("sudo")
+            .arg("rm")
+            .arg("-f")
+            .arg(target_path)
+            .status();
+
+        match rm_status {
+            Ok(s) if s.success() => println!("Removed {}.", target_path),
+            Ok(s) => eprintln!("Failed to remove udev rule (exit code {}).", s),
+            Err(e) => eprintln!("Failed to execute sudo rm for udev rule: {}", e),
+        }
+
+        let reload_status = Command::new("sudo")
+            .args(&["udevadm", "control", "--reload-rules"])
+            .status();
+
+        match reload_status {
+            Ok(s) if !s.success() => eprintln!("Failed to reload udev rules (exit code {}).", s),
+            Err(e) => eprintln!("Failed to execute udevadm control: {}", e),
+            _ => {}
+        }
+
+        let trigger_status = Command::new("sudo").args(&["udevadm", "trigger"]).status();
+
+        match trigger_status {
+            Ok(s) if s.success() => println!("Udev touch rule removed successfully."),
+            Ok(s) => eprintln!("Failed to trigger udev rules (exit code {}).", s),
+            Err(e) => eprintln!("Failed to execute udevadm trigger: {}", e),
+        }
+    } else {
+        println!("Udev touch rule not found. Skipping removal.");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn cfg() -> DeviceConfig {
-        DeviceConfig { vendor_id: "b05".into(), product_id: "1bf2".into() }
+        DeviceConfig {
+            vendor_id: "b05".into(),
+            product_id: "1bf2".into(),
+        }
     }
 
     #[test]

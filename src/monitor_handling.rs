@@ -141,6 +141,17 @@ impl DisplayManager for KdeManager {
     }
 }
 
+struct NullManager;
+
+impl DisplayManager for NullManager {
+    fn set_single_monitor(&self, _scale: &str) {
+        debug!("No supported desktop environment detected. Skipping display configuration.");
+    }
+    fn set_dual_monitor(&self, _scale: &str) {
+        debug!("No supported desktop environment detected. Skipping display configuration.");
+    }
+}
+
 /// Selects a display manager implementation appropriate for the current desktop environment.
 ///
 /// # Examples
@@ -151,13 +162,21 @@ impl DisplayManager for KdeManager {
 ///
 /// # Returns
 ///
-/// A `Box<dyn DisplayManager>` containing a `KdeManager` if the `XDG_CURRENT_DESKTOP` environment
-/// variable contains "KDE" (case-insensitive); otherwise a `GnomeManager`.
+/// A `Box<dyn DisplayManager>` containing:
+/// - `KdeManager` if `XDG_CURRENT_DESKTOP` contains "KDE".
+/// - `GnomeManager` if `XDG_CURRENT_DESKTOP` contains "GNOME".
+/// - `NullManager` otherwise, to prevent errors on unsupported environments.
 fn get_display_manager() -> Box<dyn DisplayManager> {
-    if std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_uppercase().contains("KDE") {
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_uppercase();
+    if desktop.contains("KDE") {
+        info!("Initializing KDE Display Manager");
         Box::new(KdeManager)
-    } else {
+    } else if desktop.contains("GNOME") {
+        info!("Initializing GNOME Display Manager");
         Box::new(GnomeManager)
+    } else {
+        info!("No supported Desktop Environment detected (XDG_CURRENT_DESKTOP='{}')", desktop);
+        Box::new(NullManager)
     }
 }
 

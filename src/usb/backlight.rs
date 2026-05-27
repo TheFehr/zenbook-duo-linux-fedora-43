@@ -107,21 +107,38 @@ fn set_backlight_internal(level: u8, vendor_id: u16, product_id: u16) -> Result<
     Ok(())
 }
 
-pub fn run_backlight_command(args: &[String]) {
-    if args.len() < 2 {
-        eprintln!("Usage: zenbook-duo --backlight <0-3>");
-        eprintln!("Set the keyboard backlight level to the specified value or default from config.");
-        std::process::exit(1);
-    }
+pub fn run_backlight_command(level_arg: Option<u8>) {
+    // 1. Load and validate config/level before elevation
+    let config = config::load_config_interactive();
 
-    // 1. Handle Elevation
+    // Check if a level was provided, otherwise use the one from config
+    let level = if let Some(l) = level_arg {
+        if l <= 3 {
+            l
+        } else {
+            eprintln!("Invalid level '{}'. Please provide an integer between 0 and 3.", l);
+            std::process::exit(1);
+        }
+    } else {
+        println!("No level provided, using default from config: {}", config.brightness);
+        if config.brightness < 0 || config.brightness > 3 {
+            eprintln!("Invalid brightness in config: '{}'. Please provide an integer between 0 and 3.", config.brightness);
+            std::process::exit(1);
+        }
+        config.brightness as u8
+    };
+
+    // 2. Handle Elevation
     if env::var("USER").unwrap_or_default() != "root" {
         println!("Backlight control requires root privileges. Re-running with sudo...");
         let current_exe = env::current_exe().expect("Failed to get current executable path");
-        let status = std::process::Command::new("sudo")
-            .arg(current_exe)
-            .args(&args[1..])
-            .status();
+        
+        let mut cmd = std::process::Command::new("sudo");
+        cmd.arg(current_exe)
+           .arg("backlight")
+           .arg(level.to_string());
+        
+        let status = cmd.status();
 
         match status {
             Ok(s) if s.success() => return,
@@ -130,23 +147,6 @@ pub fn run_backlight_command(args: &[String]) {
             }
         }
     }
-
-    // 2. Parse and Execute
-    let config = config::load_config_interactive();
-
-    // Check if a level was provided, otherwise use the one from config
-    let level = if let Some(level_str) = args.get(2) {
-        match level_str.parse::<u8>() {
-            Ok(l) if l <= 3 => l,
-            _ => {
-                eprintln!("Invalid level '{}'. Please provide an integer between 0 and 3.", level_str);
-                std::process::exit(1);
-            }
-        }
-    } else {
-        println!("No level provided, using default from config: {}", config.brightness);
-        config.brightness as u8
-    };
 
     if let Err(e) = set_backlight_level(level, &config) {
         print_backlight_error(e, &config);
