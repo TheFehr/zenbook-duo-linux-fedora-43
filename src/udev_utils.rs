@@ -1,9 +1,9 @@
-use udev::Event;
-use std::ffi::OsString;
-use std::path::Path;
-use std::fs;
-use std::process::Command;
 use crate::config::DeviceConfig;
+use std::ffi::OsString;
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+use udev::Event;
 
 pub fn is_device_duo_keyboard(device: &udev::Device, config: &DeviceConfig) -> bool {
     let mut vendor_match = false;
@@ -17,7 +17,11 @@ pub fn is_device_duo_keyboard(device: &udev::Device, config: &DeviceConfig) -> b
     vendor_match && product_match
 }
 
-pub fn is_it_duo_keyboard(event: &Event, known_devpath: &Option<OsString>, config: &DeviceConfig) -> Option<OsString> {
+pub fn is_it_duo_keyboard(
+    event: &Event,
+    known_devpath: &Option<OsString>,
+    config: &DeviceConfig,
+) -> Option<OsString> {
     // If we know the devpath (from a previous ADD), and this is a REMOVE event matching that path, return it.
     if let Some(known) = known_devpath {
         if event.event_type() == udev::EventType::Remove {
@@ -25,7 +29,10 @@ pub fn is_it_duo_keyboard(event: &Event, known_devpath: &Option<OsString>, confi
             let event_path = Path::new(event.devpath());
 
             // Check if paths match, or if one is a sub-path of the other (e.g. interface vs device)
-            if known_path == event_path || known_path.starts_with(event_path) || event_path.starts_with(known_path) {
+            if known_path == event_path
+                || known_path.starts_with(event_path)
+                || event_path.starts_with(known_path)
+            {
                 return Some(known.clone());
             }
         }
@@ -70,7 +77,13 @@ pub fn find_keyboard_event_path(config: &DeviceConfig) -> Option<std::path::Path
     None
 }
 
-fn check_property(name: &str, val: &str, vendor_match: &mut bool, product_match: &mut bool, config: &DeviceConfig) {
+fn check_property(
+    name: &str,
+    val: &str,
+    vendor_match: &mut bool,
+    product_match: &mut bool,
+    config: &DeviceConfig,
+) {
     match name {
         "ID_VENDOR_ID" | "ID_VENDOR" => {
             if val.trim().eq_ignore_ascii_case(&config.vendor_id) {
@@ -99,35 +112,40 @@ fn check_property(name: &str, val: &str, vendor_match: &mut bool, product_match:
 
 pub fn ensure_touch_rule() {
     let mut found = false;
-    if let Ok(mut enumerator) = udev::Enumerator::new() {
-        if let Ok(_) = enumerator.match_subsystem("input") {
-            if let Ok(devices) = enumerator.scan_devices() {
-                for device in devices {
-                    let mut vendor_match = false;
-                    let mut product_match = false;
+    let target_v = "04f3";
+    let target_p = "4448";
 
-                    for prop in device.properties() {
-                        if let (Some(name), Some(val)) = (prop.name().to_str(), prop.value().to_str()) {
-                            if (name == "ID_VENDOR_ID" || name == "ID_VENDOR") && val == "04f3" {
-                                vendor_match = true;
-                            }
-                            if (name == "ID_MODEL_ID" || name == "ID_MODEL") && val == "4448" {
-                                product_match = true;
+    if let Ok(mut enumerator) = udev::Enumerator::new() {
+        let _ = enumerator.match_subsystem("input");
+        if let Ok(devices) = enumerator.scan_devices() {
+            for device in devices {
+                for prop in device.properties() {
+                    if let Some(val) = prop.value().to_str() {
+                        let v = val.to_lowercase();
+
+                        // Check 1: Standard IDs (with and without 0x)
+                        let is_v = v == target_v || v == format!("0x{}", target_v);
+                        let is_p = v == target_p || v == format!("0x{}", target_p);
+
+                        // Check 2: The PRODUCT string (e.g. "18/4f3/4448/100")
+                        let is_product_match = v.contains(target_v) && v.contains(target_p);
+
+                        if is_v || is_p || is_product_match {
+                            // Verify this is actually the touchscreen and not the touchpad
+                            if device.sysname().to_string_lossy().contains("event") {
+                                found = true;
+                                break;
                             }
                         }
                     }
-
-                    if vendor_match && product_match {
-                        found = true;
-                        break;
-                    }
                 }
+                if found { break; }
             }
         }
     }
 
     if !found {
-        println!("Lower touchscreen (Vendor 04f3, Model 4448) not detected. Skipping udev touch rule installation.");
+        println!("Lower touchscreen not detected. Mapping skipped.");
         return;
     }
 
@@ -149,7 +167,7 @@ pub fn ensure_touch_rule() {
         .status();
 
     match mv_status {
-        Ok(s) if s.success() => {},
+        Ok(s) if s.success() => {}
         Ok(s) => {
             eprintln!("Failed to move udev rule into place (exit code {}).", s);
             return;
@@ -170,9 +188,7 @@ pub fn ensure_touch_rule() {
         _ => {}
     }
 
-    let trigger_status = Command::new("sudo")
-        .args(&["udevadm", "trigger"])
-        .status();
+    let trigger_status = Command::new("sudo").args(&["udevadm", "trigger"]).status();
 
     match trigger_status {
         Ok(s) if s.success() => println!("Udev touch rule installed successfully."),
@@ -208,9 +224,7 @@ pub fn remove_touch_rule() {
             _ => {}
         }
 
-        let trigger_status = Command::new("sudo")
-            .args(&["udevadm", "trigger"])
-            .status();
+        let trigger_status = Command::new("sudo").args(&["udevadm", "trigger"]).status();
 
         match trigger_status {
             Ok(s) if s.success() => println!("Udev touch rule removed successfully."),
@@ -227,7 +241,10 @@ mod tests {
     use super::*;
 
     fn cfg() -> DeviceConfig {
-        DeviceConfig { vendor_id: "b05".into(), product_id: "1bf2".into() }
+        DeviceConfig {
+            vendor_id: "b05".into(),
+            product_id: "1bf2".into(),
+        }
     }
 
     #[test]
