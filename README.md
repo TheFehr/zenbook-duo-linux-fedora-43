@@ -42,8 +42,25 @@ chmod +x zenbook-duo
 
 ## Usage
 
-Once installed, the daemon runs in the background. You can also manually control the backlight:
+The `zenbook-duo` utility provides several subcommands. You can use the global `--verbose` (or `-v`) flag with any command to see detailed logs.
 
+### Subcommands
+
+**`install` / `uninstall`**
+Setup or remove the background daemon, systemd service, and udev rules.
+```bash
+# Install the tool and configure the system
+zenbook-duo install
+
+# Uninstall and clean up all configuration
+zenbook-duo uninstall
+
+# Run install with verbose logging for troubleshooting
+zenbook-duo --verbose install
+```
+
+**`backlight`**
+Manually control the keyboard backlight level (0 to 3).
 ```bash
 # Set backlight to level 2 (0-3)
 zenbook-duo backlight 2
