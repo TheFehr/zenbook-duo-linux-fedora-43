@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 use std::sync::Mutex;
 use crate::config;
 use crate::config::Config;
-use log::{error};
+use log::{error, debug};
 
 lazy_static! {
     static ref USB_MUTEX: Mutex<()> = Mutex::new(());
@@ -60,13 +60,18 @@ pub fn set_backlight_level(level: u8, config: &Config) -> Result<(), rusb::Error
         rusb::Error::InvalidParam
     })?;
 
-    let mut retries = 3;
+    let mut retries = 5;
     while retries > 0 {
         match set_backlight_internal(level, vendor_id, product_id) {
             Ok(_) => return Ok(()),
-            Err(rusb::Error::Busy) if retries > 1 => {
+            Err(rusb::Error::Access) => {
+                error!("Permission denied when opening backlight device. Ensure udev rules are installed and active.");
+                return Err(rusb::Error::Access);
+            }
+            Err(e) if (e == rusb::Error::Busy || e == rusb::Error::NoDevice) && retries > 1 => {
                 retries -= 1;
-                std::thread::sleep(Duration::from_millis(100));
+                debug!("Backlight device busy or not ready ({:?}), retrying in 200ms... ({} retries left)", e, retries);
+                std::thread::sleep(Duration::from_millis(200));
                 continue;
             }
             Err(e) => return Err(e),
@@ -77,8 +82,22 @@ pub fn set_backlight_level(level: u8, config: &Config) -> Result<(), rusb::Error
 
 fn set_backlight_internal(level: u8, vendor_id: u16, product_id: u16) -> Result<(), rusb::Error> {
     let context = Context::new()?;
-    let handle = context.open_device_with_vid_pid(vendor_id, product_id)
-        .ok_or(rusb::Error::NoDevice)?;
+    let devices = context.devices()?;
+    
+    let mut found_device = None;
+    for device in devices.iter() {
+        if let Ok(desc) = device.device_descriptor() {
+            debug!("Checking USB device: VID={:04x}, PID={:04x}", desc.vendor_id(), desc.product_id());
+            if desc.vendor_id() == vendor_id && desc.product_id() == product_id {
+                debug!("MATCH FOUND: VID={:04x}, PID={:04x}", desc.vendor_id(), desc.product_id());
+                found_device = Some(device);
+                break;
+            }
+        }
+    }
+
+    let device = found_device.ok_or(rusb::Error::NoDevice)?;
+    let handle = device.open()?;
 
     let report_id: u8 = 0x5A;
     let w_value: u16 = 0x035A;

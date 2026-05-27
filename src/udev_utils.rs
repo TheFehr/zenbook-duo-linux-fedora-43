@@ -212,7 +212,7 @@ pub fn ensure_touch_rule() {
 pub fn ensure_keyboard_rule() {
     println!("Installing udev keyboard rule...");
     let target_path = "/etc/udev/rules.d/99-zenbook-keyboard.rules";
-    let rule_content = "SUBSYSTEM==\"usb\", ATTR{idVendor}==\"0b05\", ATTR{idProduct}==\"1bf2\", MODE=\"0666\", TAG+=\"uaccess\"\nSUBSYSTEM==\"usb\", ATTR{idVendor}==\"0b05\", ATTR{idProduct}==\"1bf2\", GROUP=\"input\", MODE=\"0660\", TAG+=\"uaccess\"\n";
+    let rule_content = "SUBSYSTEM==\"usb\", ATTR{idVendor}==\"0b05\", ATTR{idProduct}==\"1bf2\", MODE=\"0666\", GROUP=\"input\", TAG+=\"uaccess\", ENV{ID_INPUT}=\"1\", ENV{ID_INPUT_KEYBOARD}=\"1\"\n";
 
     let mut tmp_file = match NamedTempFile::new() {
         Ok(f) => f,

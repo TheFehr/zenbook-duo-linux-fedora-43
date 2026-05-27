@@ -276,7 +276,9 @@ pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceSt
             info!("Setting backlight level to {}", config.brightness);
             if let Err(e) = set_backlight_level(config.brightness as u8, config) {
                 error!("Failed to set backlight level: {}", e);
+                return false;
             }
+            info!("Backlight level set successfully.");
         }
 
         // ── Keyboard removed → dual‑monitor layout ───────────────────────

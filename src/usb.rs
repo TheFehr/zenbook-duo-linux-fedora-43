@@ -24,13 +24,6 @@ pub async fn monitor_usb_events() {
     // Give the desktop session a moment to settle so environment variables are more likely to be there
     tokio::time::sleep(Duration::from_millis(1000)).await;
 
-    // If we found it on startup, apply the state immediately.
-    // If it fails (returns false), last_processed_state remains None, 
-    // and the loop below will try again on the first iteration.
-    if handle_if_changed(&current_state, &last_processed_state, &config) {
-        last_processed_state = current_state.clone();
-    }
-
     let builder = MonitorBuilder::new().expect("Failed to create udev monitor builder");
 
     // Filter only for the USB subsystem, similar to "udevadm monitor --subsystem-match=usb"
@@ -47,6 +40,18 @@ pub async fn monitor_usb_events() {
     info!("Started monitoring USB events...");
 
     loop {
+        // If we have a pending state change that hasn't been successfully applied yet,
+        // don't wait indefinitely for udev events.
+        if current_state != last_processed_state {
+            if handle_if_changed(&current_state, &last_processed_state, &config) {
+                last_processed_state = current_state.clone();
+            } else {
+                // Wait a bit before retrying if it failed (e.g. DE not ready)
+                tokio::time::sleep(Duration::from_millis(2000)).await;
+                continue; 
+            }
+        }
+
         // Wait for the monitor socket to be readable
         let mut guard = async_monitor
             .readable_mut()
@@ -71,13 +76,6 @@ pub async fn monitor_usb_events() {
                 EventType::Add => update_if_not_yet(&mut current_state, DeviceState::Added),
                 EventType::Remove => update_if_not_yet(&mut current_state, DeviceState::Removed),
                 _ => continue, // Ignore other events like Change or Move if not needed
-            }
-        }
-
-        // Always attempt to sync if state differs from last SUCCESSFULLY processed state
-        if current_state != last_processed_state {
-            if handle_if_changed(&current_state, &last_processed_state, &config) {
-                last_processed_state = current_state.clone();
             }
         }
 

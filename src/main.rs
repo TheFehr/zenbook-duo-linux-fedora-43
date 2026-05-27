@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use crate::config::load_config;
 use futures::{StreamExt, stream::FuturesUnordered};
 use tokio::task::LocalSet;
-use log::{info, error, LevelFilter};
+use log::{info, LevelFilter};
 
 #[derive(Parser)]
 #[command(name = "zenbook-duo", about = "Zenbook Duo Linux Tools")]
@@ -72,15 +72,6 @@ async fn main() {
     env_logger::Builder::from_default_env()
         .filter_level(log_level)
         .init();
-
-    let (current_state, _keyboard_devpath) = usb::check_initial_state(&config);
-    if current_state == Some(usb::DeviceState::Added) {
-        if let Err(e) = usb::backlight::set_backlight_level(config.brightness as u8, &config) {
-            error!("Failed to set initial backlight level: {:?}. (Are you running as root or have udev rules set up?)", e);
-        }
-    } else {
-        info!("Keyboard not detected at startup, skipping initial backlight setup.");
-    }
 
     // LocalSet allows us to spawn !Send futures (like the udev monitor) on the current thread
     let local = LocalSet::new();
