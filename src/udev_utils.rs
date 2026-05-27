@@ -209,6 +209,106 @@ pub fn ensure_touch_rule() {
     }
 }
 
+pub fn ensure_keyboard_rule() {
+    println!("Installing udev keyboard rule...");
+    let target_path = "/etc/udev/rules.d/99-zenbook-keyboard.rules";
+    let rule_content = "SUBSYSTEM==\"usb\", ATTR{idVendor}==\"0b05\", ATTR{idProduct}==\"1bf2\", MODE=\"0666\", TAG+=\"uaccess\"\nSUBSYSTEM==\"usb\", ATTR{idVendor}==\"0b05\", ATTR{idProduct}==\"1bf2\", GROUP=\"input\", MODE=\"0660\", TAG+=\"uaccess\"\n";
+
+    let mut tmp_file = match NamedTempFile::new() {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Failed to create secure temporary file: {}", e);
+            return;
+        }
+    };
+
+    if let Err(e) = tmp_file.write_all(rule_content.as_bytes()) {
+        eprintln!("Failed to write to temporary file: {}", e);
+        return;
+    }
+
+    if let Err(e) = tmp_file.flush() {
+        eprintln!("Failed to flush temporary file: {}", e);
+        return;
+    }
+
+    let mv_status = Command::new("sudo")
+        .arg("mv")
+        .arg("-f")
+        .arg(tmp_file.path())
+        .arg(target_path)
+        .status();
+
+    match mv_status {
+        Ok(s) if s.success() => {}
+        Ok(s) => {
+            eprintln!("Failed to move udev rule into place (exit code {}).", s);
+            return;
+        }
+        Err(e) => {
+            eprintln!("Failed to execute sudo mv for udev rule: {}", e);
+            return;
+        }
+    }
+
+    let reload_status = Command::new("sudo")
+        .args(&["udevadm", "control", "--reload-rules"])
+        .status();
+
+    match reload_status {
+        Ok(s) if !s.success() => eprintln!("Failed to reload udev rules (exit code {}).", s),
+        Err(e) => eprintln!("Failed to execute udevadm control: {}", e),
+        _ => {}
+    }
+
+    let trigger_status = Command::new("sudo").args(&["udevadm", "trigger"]).status();
+
+    match trigger_status {
+        Ok(s) if s.success() => println!("Udev keyboard rule installed successfully."),
+        Ok(s) => eprintln!("Failed to trigger udev rules (exit code {}).", s),
+        Err(e) => eprintln!("Failed to execute udevadm trigger: {}", e),
+    }
+}
+
+pub fn remove_keyboard_rule() {
+    println!("Removing udev keyboard rule...");
+    let target_path = "/etc/udev/rules.d/99-zenbook-keyboard.rules";
+
+    if Path::new(target_path).exists() {
+        let rm_status = Command::new("sudo")
+            .arg("rm")
+            .arg("-f")
+            .arg(target_path)
+            .status();
+
+        match rm_status {
+            Ok(s) if s.success() => println!("Removed {}.", target_path),
+            Ok(s) => eprintln!("Failed to remove udev rule (exit code {}).", s),
+            Err(e) => eprintln!("Failed to execute sudo rm for udev rule: {}", e),
+        }
+
+        let reload_status = Command::new("sudo")
+            .args(&["udevadm", "control", "--reload-rules"])
+            .status();
+
+        match reload_status {
+            Ok(s) if !s.success() => eprintln!("Failed to reload udev rules (exit code {}).", s),
+            Err(e) => eprintln!("Failed to execute udevadm control: {}", e),
+            _ => {}
+        }
+
+        let trigger_status = Command::new("sudo").args(&["udevadm", "trigger"]).status();
+
+        match trigger_status {
+            Ok(s) if s.success() => println!("Udev keyboard rule removed successfully."),
+            Ok(s) => eprintln!("Failed to trigger udev rules (exit code {}).", s),
+            Err(e) => eprintln!("Failed to execute udevadm trigger: {}", e),
+        }
+    } else {
+        println!("Udev keyboard rule not found. Skipping removal.");
+    }
+}
+
 pub fn remove_touch_rule() {
     println!("Removing udev touch rule...");
     let target_path = "/etc/udev/rules.d/99-zenbook-touch.rules";

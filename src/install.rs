@@ -97,6 +97,7 @@ pub fn install() {
     }
 
     crate::udev_utils::ensure_touch_rule();
+    crate::udev_utils::ensure_keyboard_rule();
 
     // 4. Create Systemd User Service
     // We install it to ~/.config/systemd/user/ so no sudo needed

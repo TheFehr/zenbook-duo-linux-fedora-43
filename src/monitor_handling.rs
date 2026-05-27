@@ -1,5 +1,5 @@
 use std::thread;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::Duration;
 use crate::config::Config;
 use crate::usb::backlight::set_backlight_level;
@@ -14,68 +14,52 @@ trait DisplayManager {
 struct GnomeManager;
 
 impl DisplayManager for GnomeManager {
-    /// Configure eDP-1 as the primary monitor using the provided scale.
-    ///
-    /// This method applies the given scale to the eDP-1 display and attempts to set it as the primary monitor.
-    /// Failures to apply the configuration are logged.
-    ///
-    /// # Parameters
-    ///
-    /// - `scale`: The scale factor to apply to eDP-1 (for example, `"1.00"` or `"1.25"`).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// // Assuming `mgr` implements this method (e.g., GnomeManager or KdeManager).
-    /// // let mgr = GnomeManager::new();
-    /// // mgr.set_single_monitor("1.00");
-    /// ```
     fn set_single_monitor(&self, scale: &str) {
         let base_args = vec![
             "set", "--logical-monitor", "--primary", "--scale", scale, "--monitor", "eDP-1"
         ];
+        info!("Switching to single monitor mode (scale: {})", scale);
         debug!("Executing 'gdctl {}'", base_args.join(" "));
         
         match Command::new("gdctl")
             .args(&base_args)
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .status()
+            .output()
         {
-            Ok(status) if !status.success() => {
-                error!("gdctl exited with status: {}", status);
+            Ok(output) => {
+                if !output.status.success() {
+                    error!("gdctl failed with status {}: {}", output.status, String::from_utf8_lossy(&output.stderr));
+                } else {
+                    debug!("gdctl succeeded");
+                }
             }
             Err(e) => {
                 error!("Failed to execute gdctl: {}", e);
             }
-            _ => {}
         }
     }
 
-    /// Configure a dual-monitor layout by applying `scale` to both displays and placing `eDP-2` below `eDP-1`.
-    ///
-    /// This will invoke the `gdctl` utility to make `eDP-1` the primary monitor and position `eDP-2` beneath it, using the provided scale value for both monitors. Errors encountered while launching `gdctl` are logged.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// let manager = GnomeManager;
-    /// manager.set_dual_monitor("1.25");
-    /// ```
     fn set_dual_monitor(&self, scale: &str) {
         let dual_args = vec![
             "set", "--logical-monitor", "--primary", "--scale", scale, "--monitor", "eDP-1",
             "--logical-monitor", "--scale", scale, "--monitor", "eDP-2", "--below", "eDP-1"
         ];
+        info!("Switching to dual monitor mode (scale: {})", scale);
         debug!("Executing 'gdctl {}'", dual_args.join(" "));
         
-        if let Err(e) = Command::new("gdctl")
+        match Command::new("gdctl")
             .args(&dual_args)
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .status() 
+            .output()
         {
-            error!("Failed to execute gdctl: {}", e);
+            Ok(output) => {
+                if !output.status.success() {
+                    error!("gdctl failed with status {}: {}", output.status, String::from_utf8_lossy(&output.stderr));
+                } else {
+                    debug!("gdctl succeeded");
+                }
+            }
+            Err(e) => {
+                error!("Failed to execute gdctl: {}", e);
+            }
         }
     }
 }
@@ -83,60 +67,54 @@ impl DisplayManager for GnomeManager {
 struct KdeManager;
 
 impl DisplayManager for KdeManager {
-    /// Configure KDE to use a single-monitor layout by scaling `eDP-1` and disabling `eDP-2`.
-    ///
-    /// The function invokes `kscreen-doctor` with arguments to set the scale for `eDP-1` and
-    /// disable `eDP-2`. Errors from launching the command are logged but not returned.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// // Create a KdeManager and set a scale of 1.25 for the internal display.
-    /// let mgr = KdeManager { /* fields if any */ };
-    /// mgr.set_single_monitor("1.25");
-    /// ```
     fn set_single_monitor(&self, scale: &str) {
         let args = vec![
             format!("output.eDP-1.scale.{}", scale),
             "output.eDP-2.disable".to_string(),
         ];
+        info!("Switching to single monitor mode (scale: {})", scale);
         debug!("Executing 'kscreen-doctor {}'", args.join(" "));
         
-        if let Err(e) = Command::new("kscreen-doctor")
+        match Command::new("kscreen-doctor")
             .args(&args)
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .status() 
+            .output()
         {
-            error!("Failed to execute kscreen-doctor: {}", e);
+            Ok(output) => {
+                if !output.status.success() {
+                    error!("kscreen-doctor failed with status {}: {}", output.status, String::from_utf8_lossy(&output.stderr));
+                } else {
+                    debug!("kscreen-doctor succeeded");
+                }
+            }
+            Err(e) => {
+                error!("Failed to execute kscreen-doctor: {}", e);
+            }
         }
     }
 
-    /// Configure KDE to use a dual-monitor layout and apply the given scale to both displays.
-    ///
-    /// The `scale` string is passed directly to `kscreen-doctor` (for example `"1.0"` or `"1.25"`).
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// let mgr = KdeManager {};
-    /// mgr.set_dual_monitor("1.0");
-    /// ```
     fn set_dual_monitor(&self, scale: &str) {
         let args = vec![
             format!("output.eDP-1.scale.{}", scale),
             "output.eDP-2.enable".to_string(),
             format!("output.eDP-2.scale.{}", scale),
         ];
+        info!("Switching to dual monitor mode (scale: {})", scale);
         debug!("Executing 'kscreen-doctor {}'", args.join(" "));
         
-        if let Err(e) = Command::new("kscreen-doctor")
+        match Command::new("kscreen-doctor")
             .args(&args)
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .status() 
+            .output()
         {
-            error!("Failed to execute kscreen-doctor: {}", e);
+            Ok(output) => {
+                if !output.status.success() {
+                    error!("kscreen-doctor failed with status {}: {}", output.status, String::from_utf8_lossy(&output.stderr));
+                } else {
+                    debug!("kscreen-doctor succeeded");
+                }
+            }
+            Err(e) => {
+                error!("Failed to execute kscreen-doctor: {}", e);
+            }
         }
     }
 }
@@ -212,7 +190,7 @@ pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceSt
         (Some(DeviceState::Added), None) |
         (Some(DeviceState::Added), Some(DeviceState::Removed)) => {
             info!("Zenbook Duo Keyboard detected!");
-            thread::sleep(Duration::from_millis(500));
+            thread::sleep(Duration::from_millis(1000));
 
             manager.set_single_monitor(&scale);
 
@@ -226,7 +204,7 @@ pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceSt
         (Some(DeviceState::Removed), None) |
         (Some(DeviceState::Removed), Some(DeviceState::Added)) => {
             info!("Zenbook Duo Keyboard removed!");
-            thread::sleep(Duration::from_millis(500));
+            thread::sleep(Duration::from_millis(1000));
 
             manager.set_dual_monitor(&scale);
         }
