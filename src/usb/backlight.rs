@@ -60,12 +60,15 @@ pub fn set_backlight_level(level: u8, config: &Config) -> Result<(), rusb::Error
         rusb::Error::InvalidParam
     })?;
 
+    // Use a single context for all retries to avoid FD pressure
+    let context = Context::new()?;
+
     let mut retries = 5;
     while retries > 0 {
-        match set_backlight_internal(level, vendor_id, product_id) {
+        match set_backlight_internal(level, vendor_id, product_id, &context) {
             Ok(_) => return Ok(()),
             Err(rusb::Error::Access) => {
-                error!("Permission denied when opening backlight device. Ensure udev rules are installed and active.");
+                // If it's a permission error, we don't retry here; we let the caller handle escalation
                 return Err(rusb::Error::Access);
             }
             Err(e) if (e == rusb::Error::Busy || e == rusb::Error::NoDevice) && retries > 1 => {
@@ -80,10 +83,9 @@ pub fn set_backlight_level(level: u8, config: &Config) -> Result<(), rusb::Error
     Err(rusb::Error::Busy)
 }
 
-fn set_backlight_internal(level: u8, vendor_id: u16, product_id: u16) -> Result<(), rusb::Error> {
-    let context = Context::new()?;
+fn set_backlight_internal(level: u8, vendor_id: u16, product_id: u16, context: &Context) -> Result<(), rusb::Error> {
     let devices = context.devices()?;
-    
+
     let mut found_device = None;
     for device in devices.iter() {
         if let Ok(desc) = device.device_descriptor() {
@@ -127,10 +129,9 @@ fn set_backlight_internal(level: u8, vendor_id: u16, product_id: u16) -> Result<
 }
 
 pub fn run_backlight_command(level_arg: Option<u8>) {
-    // 1. Load and validate config/level before elevation
+    // 1. Load and validate config/level
     let config = config::load_config_interactive();
 
-    // Check if a level was provided, otherwise use the one from config
     let level = if let Some(l) = level_arg {
         if l <= 3 {
             l
@@ -147,33 +148,39 @@ pub fn run_backlight_command(level_arg: Option<u8>) {
         config.brightness as u8
     };
 
-    // 2. Handle Elevation
-    if env::var("USER").unwrap_or_default() != "root" {
-        println!("Backlight control requires root privileges. Re-running with sudo...");
-        let current_exe = env::current_exe().expect("Failed to get current executable path");
-        
-        let mut cmd = std::process::Command::new("sudo");
-        cmd.arg(current_exe)
-           .arg("backlight")
-           .arg(level.to_string());
-        
-        let status = cmd.status();
+    // 2. Try direct access first (works if udev rules are installed)
+    match set_backlight_level(level, &config) {
+        Ok(_) => {
+            println!("Backlight successfully set to level {}", level);
+            return;
+        }
+        Err(rusb::Error::Access) if env::var("USER").unwrap_or_default() != "root" => {
+            // Only escalate if it's a permission error and we are not root
+            println!("Permission denied. Backlight control requires root privileges (or active udev rules).");
+            println!("Re-running with sudo...");
 
-        match status {
-            Ok(s) if s.success() => return,
-            _ => {
-                std::process::exit(1);
+            let current_exe = env::current_exe().expect("Failed to get current executable path");
+
+            let mut cmd = std::process::Command::new("sudo");
+            cmd.arg(current_exe)
+               .arg("backlight")
+               .arg(level.to_string());
+
+            let status = cmd.status();
+
+            match status {
+                Ok(s) if s.success() => return,
+                _ => {
+                    std::process::exit(1);
+                }
             }
         }
+        Err(e) => {
+            print_backlight_error(e, &config);
+            std::process::exit(1);
+        }
     }
-
-    if let Err(e) = set_backlight_level(level, &config) {
-        print_backlight_error(e, &config);
-        std::process::exit(1);
-    }
-    println!("Backlight successfully set to level {}", level);
 }
-
 fn print_backlight_error(err: rusb::Error, config: &Config) {
     match err {
         rusb::Error::NoDevice => {
