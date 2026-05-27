@@ -6,13 +6,22 @@ use std::process::Command;
 use directories::BaseDirs;
 use crate::config;
 
+fn ensure_not_root() {
+    if env::var("USER").unwrap_or_default() == "root" || env::var("SUDO_USER").is_ok() {
+        eprintln!("Error: This command must be run as your normal user, not as root or via sudo.");
+        eprintln!("We will ask for sudo password only when necessary (e.g., for installing the binary or udev rules).");
+        std::process::exit(1);
+    }
+}
+
 /// Install the Zenbook Duo CLI, create a per-user systemd service for it, and enable/start that service.
 ///
-/// This performs interactive preflight checks (distribution and desktop environment), optionally prompts
-/// the user if running as root, loads or creates configuration interactively, installs the current
-/// executable to /usr/local/bin/zenbook-duo (using a temporary file and sudo for copying/replacing),
-/// writes a systemd user unit under ~/.config/systemd/user/zenbook-duo.service configured with the
-/// detected desktop environment, reloads the user systemd daemon, and enables/starts the service.
+/// This performs interactive preflight checks (distribution and desktop environment), ensures
+/// the command is not running as root, loads or creates configuration interactively, installs
+/// the current executable to /usr/local/bin/zenbook-duo (using a temporary file and sudo for
+/// copying/replacing), writes a systemd user unit under ~/.config/systemd/user/zenbook-duo.service
+/// configured with the detected desktop environment, reloads the user systemd daemon, and
+/// enables/starts the service.
 ///
 /// # Examples
 ///
@@ -24,20 +33,8 @@ pub fn install() {
     // 0. Pre-flight checks: Distro and DE
     let desktop_env = check_requirements();
 
-    // Check if we are root. If so, warn the user.
-    // We prefer running as a normal user to set up config correctly.
-    if env::var("USER").unwrap_or_default() == "root" || env::var("SUDO_USER").is_ok() {
-        println!("Warning: It is recommended to run this installer as your normal user (without sudo).");
-        println!("We will ask for sudo password only when necessary (copying the binary).");
-        println!("If you continue as root, the configuration file will be created for root, which might not be what you want.");
-        print!("Continue anyway? [y/N] ");
-        io::stdout().flush().unwrap();
-        let mut answer = String::new();
-        io::stdin().read_line(&mut answer).unwrap();
-        if !answer.trim().eq_ignore_ascii_case("y") {
-            std::process::exit(1);
-        }
-    }
+    // Check if we are root.
+    ensure_not_root();
 
     println!("Installing Zenbook Duo Linux Tools...");
 
@@ -221,6 +218,9 @@ fn check_requirements() -> &'static str {
 }
 
 pub fn uninstall() {
+    // Check if we are root.
+    ensure_not_root();
+
     println!("Uninstalling Zenbook Duo Linux Tools...");
 
     // 1. Delete the udev rule

@@ -108,28 +108,7 @@ fn set_backlight_internal(level: u8, vendor_id: u16, product_id: u16) -> Result<
 }
 
 pub fn run_backlight_command(level_arg: Option<u8>) {
-    // 1. Handle Elevation
-    if env::var("USER").unwrap_or_default() != "root" {
-        println!("Backlight control requires root privileges. Re-running with sudo...");
-        let current_exe = env::current_exe().expect("Failed to get current executable path");
-        
-        let mut cmd = std::process::Command::new("sudo");
-        cmd.arg(current_exe).arg("backlight");
-        if let Some(l) = level_arg {
-            cmd.arg(l.to_string());
-        }
-        
-        let status = cmd.status();
-
-        match status {
-            Ok(s) if s.success() => return,
-            _ => {
-                std::process::exit(1);
-            }
-        }
-    }
-
-    // 2. Parse and Execute
+    // 1. Load and validate config/level before elevation
     let config = config::load_config_interactive();
 
     // Check if a level was provided, otherwise use the one from config
@@ -144,6 +123,26 @@ pub fn run_backlight_command(level_arg: Option<u8>) {
         println!("No level provided, using default from config: {}", config.brightness);
         config.brightness as u8
     };
+
+    // 2. Handle Elevation
+    if env::var("USER").unwrap_or_default() != "root" {
+        println!("Backlight control requires root privileges. Re-running with sudo...");
+        let current_exe = env::current_exe().expect("Failed to get current executable path");
+        
+        let mut cmd = std::process::Command::new("sudo");
+        cmd.arg(current_exe)
+           .arg("backlight")
+           .arg(level.to_string());
+        
+        let status = cmd.status();
+
+        match status {
+            Ok(s) if s.success() => return,
+            _ => {
+                std::process::exit(1);
+            }
+        }
+    }
 
     if let Err(e) = set_backlight_level(level, &config) {
         print_backlight_error(e, &config);

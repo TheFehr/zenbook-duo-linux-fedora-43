@@ -38,6 +38,13 @@ enum Commands {
 async fn main() {
     let cli = Cli::parse();
 
+    let mut config = load_config();
+
+    // Check for verbose flag in args
+    if cli.verbose {
+        config.verbose = true;
+    }
+
     if let Some(command) = &cli.command {
         match command {
             Commands::Install => {
@@ -53,13 +60,6 @@ async fn main() {
                 return;
             }
         }
-    }
-
-    let mut config = load_config();
-    
-    // Check for verbose flag in args
-    if cli.verbose {
-        config.verbose = true;
     }
 
     // Initialize logger

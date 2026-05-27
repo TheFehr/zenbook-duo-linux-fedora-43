@@ -1,8 +1,9 @@
 use crate::config::DeviceConfig;
 use std::ffi::OsString;
-use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+use tempfile::NamedTempFile;
 use udev::Event;
 
 pub fn is_device_duo_keyboard(device: &udev::Device, config: &DeviceConfig) -> bool {
@@ -145,24 +146,35 @@ pub fn ensure_touch_rule() {
     }
 
     if !found {
-        println!("Lower touchscreen not detected. Mapping skipped.");
-        return;
+        println!("Lower touchscreen not detected. Mapping will be installed anyway for future connections.");
     }
 
-    println!("Lower touchscreen detected. Installing udev touch rule...");
-    let tmp_path = Path::new("/tmp/99-zenbook-touch.rules");
+    println!("Installing udev touch rule...");
     let target_path = "/etc/udev/rules.d/99-zenbook-touch.rules";
     let rule_content = "ENV{ID_INPUT_TOUCHSCREEN}==\"1\", ENV{ID_VENDOR_ID}==\"04f3\", ENV{ID_MODEL_ID}==\"4448\", ENV{LIBINPUT_CALIBRATION_MATRIX}=\"1 0 0 0 0.5 0.5 0 0 1\"\n";
 
-    if let Err(e) = fs::write(tmp_path, rule_content) {
-        eprintln!("Failed to write temporary udev rule: {}", e);
+    let mut tmp_file = match NamedTempFile::new() {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Failed to create secure temporary file: {}", e);
+            return;
+        }
+    };
+
+    if let Err(e) = tmp_file.write_all(rule_content.as_bytes()) {
+        eprintln!("Failed to write to temporary file: {}", e);
+        return;
+    }
+
+    if let Err(e) = tmp_file.flush() {
+        eprintln!("Failed to flush temporary file: {}", e);
         return;
     }
 
     let mv_status = Command::new("sudo")
         .arg("mv")
         .arg("-f")
-        .arg(tmp_path)
+        .arg(tmp_file.path())
         .arg(target_path)
         .status();
 
