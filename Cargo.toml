@@ -1,6 +1,6 @@
 [package]
 name = "zenbook-duo-linux"
-version = "1.4.1"
+version = "1.4.2"
 edition = "2024"
 description = "A utility to handle ASUS Zenbook Duo (2025) features on Linux"
 license = "MIT"
