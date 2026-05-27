@@ -10,6 +10,7 @@ use log::{info, debug, error};
 trait DisplayManager {
     fn set_single_monitor(&self, scale: &str);
     fn set_dual_monitor(&self, scale: &str);
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 struct GnomeManager {
@@ -17,6 +18,7 @@ struct GnomeManager {
 }
 
 impl DisplayManager for GnomeManager {
+    fn as_any(&self) -> &dyn std::any::Any { self }
     fn set_single_monitor(&self, scale: &str) {
         let base_args = vec![
             "set", "--logical-monitor", "--primary", "--scale", scale, "--monitor", "eDP-1"
@@ -74,6 +76,7 @@ struct KdeManager {
 }
 
 impl DisplayManager for KdeManager {
+    fn as_any(&self) -> &dyn std::any::Any { self }
     fn set_single_monitor(&self, scale: &str) {
         let args = vec![
             format!("output.eDP-1.position.0,0"),
@@ -175,6 +178,7 @@ fn get_edp1_physical_height(env: &HashMap<String, String>) -> i32 {
 struct NullManager;
 
 impl DisplayManager for NullManager {
+    fn as_any(&self) -> &dyn std::any::Any { self }
     fn set_single_monitor(&self, _scale: &str) {
         debug!("No supported desktop environment detected. Skipping display configuration.");
     }
@@ -248,15 +252,23 @@ fn get_display_manager() -> Box<dyn DisplayManager> {
 }
 
 /// Adjusts monitor layout and backlight when the Zenbook Duo keyboard state changes.
-pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceState>, config: &Config) {
+/// Returns true if a supported manager was used, false if NullManager was used.
+pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceState>, config: &Config) -> bool {
     let scale = config.scale.to_string();
     let manager = get_display_manager();
+    
+    // Check if we are using a real manager
+    let is_null = std::any::TypeId::of::<NullManager>() == manager.as_any().type_id();
 
     match (current, before) {
         // ── Keyboard added → single‑monitor layout ─────────────────────
         (Some(DeviceState::Added), None) |
         (Some(DeviceState::Added), Some(DeviceState::Removed)) => {
             info!("Zenbook Duo Keyboard detected!");
+            if is_null {
+                info!("Desktop environment not ready yet. Will retry.");
+                return false;
+            }
             thread::sleep(Duration::from_millis(1000));
 
             manager.set_single_monitor(&scale);
@@ -271,10 +283,15 @@ pub fn handle_if_changed(current: &Option<DeviceState>, before: &Option<DeviceSt
         (Some(DeviceState::Removed), None) |
         (Some(DeviceState::Removed), Some(DeviceState::Added)) => {
             info!("Zenbook Duo Keyboard removed!");
+            if is_null {
+                info!("Desktop environment not ready yet. Will retry.");
+                return false;
+            }
             thread::sleep(Duration::from_millis(1000));
 
             manager.set_dual_monitor(&scale);
         }
         _ => {}
     }
+    !is_null
 }

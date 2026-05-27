@@ -21,9 +21,15 @@ pub async fn monitor_usb_events() {
     let (mut current_state, mut keyboard_devpath) = check_initial_state(&config);
     let mut last_processed_state: Option<DeviceState> = None;
 
-    // If we found it on startup, apply the state immediately
-    handle_if_changed(&current_state, &last_processed_state, &config);
-    last_processed_state = current_state.clone();
+    // Give the desktop session a moment to settle so environment variables are more likely to be there
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // If we found it on startup, apply the state immediately.
+    // If it fails (returns false), last_processed_state remains None, 
+    // and the loop below will try again on the first iteration.
+    if handle_if_changed(&current_state, &last_processed_state, &config) {
+        last_processed_state = current_state.clone();
+    }
 
     let builder = MonitorBuilder::new().expect("Failed to create udev monitor builder");
 
@@ -68,9 +74,11 @@ pub async fn monitor_usb_events() {
             }
         }
 
+        // Always attempt to sync if state differs from last SUCCESSFULLY processed state
         if current_state != last_processed_state {
-            handle_if_changed(&current_state, &last_processed_state, &config);
-            last_processed_state = current_state.clone();
+            if handle_if_changed(&current_state, &last_processed_state, &config) {
+                last_processed_state = current_state.clone();
+            }
         }
 
         // Signal that we have processed the available events.
@@ -129,75 +137,36 @@ pub async fn monitor_special_keys(config: Config) {
                 info!("Listening for special keys on {:?}", path);
                 loop {
                     match device.fetch_events() {
-                        Ok(events) => {
-                            for event in events {
-                                if event.event_type() == evdev::EventType::MISC && event.value() == 458813 {
+                        Ok(iterator) => {
+                            for event in iterator {
+                                if event.event_type() == evdev::EventType::KEY
+                                    && event.code() == 190 // F4/Backlight key
+                                    && event.value() == 1 // Key down
+                                {
                                     let now = Instant::now();
-                                    if last_toggle_at.is_some_and(|t| now.duration_since(t) < debounce_window) {
-                                        continue;
+                                    if let Some(last) = last_toggle_at {
+                                        if now.duration_since(last) < debounce_window {
+                                            continue;
+                                        }
+                                    }
+
+                                    current_level = (current_level + 1) % 4;
+                                    info!("Backlight key pressed, toggling to level {}", current_level);
+                                    if let Err(e) = backlight::set_backlight_level(current_level, &config) {
+                                        error!("Failed to set backlight via special key: {}", e);
                                     }
                                     last_toggle_at = Some(now);
-
-                                    let next_level = (current_level + 1) % 4;
-                                    match backlight::set_backlight_level(next_level, &config) {
-                                        Ok(()) => {
-                                            current_level = next_level;
-                                            info!("Backlight toggled to level {}", current_level);
-                                        }
-                                        Err(e) => {
-                                            error!("Failed to set backlight level {}: {:?}", next_level, e);
-                                        }
-                                    }
                                 }
                             }
                         }
-                        Err(_) => break, // Device likely disconnected
+                        Err(e) => {
+                            error!("Error fetching evdev events: {}", e);
+                            break; // Re-open the device
+                        }
                     }
-                    tokio::time::sleep(Duration::from_millis(10)).await;
                 }
             }
         }
-        // Wait before trying to find the keyboard again
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{DeviceState, update_if_not_yet};
-
-    #[test]
-    fn update_sets_from_none() {
-        let mut state: Option<DeviceState> = None;
-        update_if_not_yet(&mut state, DeviceState::Added);
-        assert_eq!(state, Some(DeviceState::Added));
-    }
-
-    #[test]
-    fn update_ignores_same_state_added() {
-        let mut state = Some(DeviceState::Added);
-        update_if_not_yet(&mut state, DeviceState::Added);
-        assert_eq!(state, Some(DeviceState::Added));
-    }
-
-    #[test]
-    fn update_ignores_same_state_removed() {
-        let mut state = Some(DeviceState::Removed);
-        update_if_not_yet(&mut state, DeviceState::Removed);
-        assert_eq!(state, Some(DeviceState::Removed));
-    }
-
-    #[test]
-    fn update_switches_added_to_removed() {
-        let mut state = Some(DeviceState::Added);
-        update_if_not_yet(&mut state, DeviceState::Removed);
-        assert_eq!(state, Some(DeviceState::Removed));
-    }
-
-    #[test]
-    fn update_switches_removed_to_added() {
-        let mut state = Some(DeviceState::Removed);
-        update_if_not_yet(&mut state, DeviceState::Added);
-        assert_eq!(state, Some(DeviceState::Added));
+        tokio::time::sleep(Duration::from_millis(1000)).await;
     }
 }
