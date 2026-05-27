@@ -121,6 +121,10 @@ pub fn run_backlight_command(level_arg: Option<u8>) {
         }
     } else {
         println!("No level provided, using default from config: {}", config.brightness);
+        if config.brightness < 0 || config.brightness > 3 {
+            eprintln!("Invalid brightness in config: '{}'. Please provide an integer between 0 and 3.", config.brightness);
+            std::process::exit(1);
+        }
         config.brightness as u8
     };
 

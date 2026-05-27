@@ -254,10 +254,19 @@ pub fn uninstall() {
     if let Some(config_path) = crate::config::get_config_path() {
         if let Some(config_dir) = config_path.parent() {
             if config_dir.exists() {
-                if let Err(e) = fs::remove_dir_all(config_dir) {
-                    eprintln!("Failed to remove configuration directory {:?}: {}", config_dir, e);
+                // Sanity check: Ensure it's a project directory and not a sensitive system path
+                let dir_name = config_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let is_zenbook_dir = dir_name.contains("zenbook");
+                let is_in_home = config_dir.starts_with("/home/") || config_dir.starts_with("/root/");
+
+                if is_zenbook_dir && is_in_home {
+                    if let Err(e) = fs::remove_dir_all(config_dir) {
+                        eprintln!("Failed to remove configuration directory {:?}: {}", config_dir, e);
+                    } else {
+                        println!("Removed configuration directory {:?}", config_dir);
+                    }
                 } else {
-                    println!("Removed configuration directory {:?}", config_dir);
+                    eprintln!("Skipping removal of suspicious configuration directory: {:?}", config_dir);
                 }
             }
         }
