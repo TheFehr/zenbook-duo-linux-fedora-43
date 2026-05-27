@@ -115,6 +115,7 @@ pub fn install() {
         r#"[Unit]
 Description=Zenbook Duo User Handler
 After=graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 ExecStart={}
@@ -122,7 +123,7 @@ Restart=always
 RestartSec=5
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
 "#,
         install_path.display()
     );
@@ -135,10 +136,13 @@ WantedBy=default.target
         }
     }
 
-    // 5. Reload Daemon & Enable
-    println!("Reloading systemd user daemon...");
+    // 5. Stop existing, Reload Daemon & Enable
+    println!("Stopping existing service (if any)...");
+    let _ = Command::new("systemctl")
+        .args(&["--user", "stop", "zenbook-duo.service"])
+        .status();
 
-    // No sudo needed for user services
+    println!("Reloading systemd user daemon...");
     let _ = Command::new("systemctl")
         .args(&["--user", "daemon-reload"])
         .status();

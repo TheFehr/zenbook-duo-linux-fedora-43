@@ -190,20 +190,29 @@ impl DisplayManager for NullManager {
 /// - `NullManager` otherwise, to prevent errors on unsupported environments.
 fn get_display_manager() -> Box<dyn DisplayManager> {
     let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_uppercase();
+    let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
+    let display = std::env::var("DISPLAY").unwrap_or_default();
+
+    debug!("DE Detection: XDG_CURRENT_DESKTOP='{}', WAYLAND_DISPLAY='{}', DISPLAY='{}'", 
+           desktop, wayland_display, display);
+
     if desktop.contains("KDE") {
-        info!("Initializing KDE Display Manager (detected via env)");
+        info!("Initializing KDE Display Manager (detected via XDG_CURRENT_DESKTOP)");
         Box::new(KdeManager)
     } else if desktop.contains("GNOME") {
-        info!("Initializing GNOME Display Manager (detected via env)");
+        info!("Initializing GNOME Display Manager (detected via XDG_CURRENT_DESKTOP)");
         Box::new(GnomeManager)
-    } else if std::path::Path::new("/usr/bin/kscreen-doctor").exists() {
-        info!("Initializing KDE Display Manager (detected via kscreen-doctor)");
+    } else if !desktop.is_empty() {
+        info!("Unsupported Desktop Environment: {}", desktop);
+        Box::new(NullManager)
+    } else if std::path::Path::new("/usr/bin/kscreen-doctor").exists() && (!wayland_display.is_empty() || !display.is_empty()) {
+        info!("Initializing KDE Display Manager (detected via kscreen-doctor and active display)");
         Box::new(KdeManager)
-    } else if std::path::Path::new("/usr/bin/gdctl").exists() {
-        info!("Initializing GNOME Display Manager (detected via gdctl)");
+    } else if std::path::Path::new("/usr/bin/gdctl").exists() && (!wayland_display.is_empty() || !display.is_empty()) {
+        info!("Initializing GNOME Display Manager (detected via gdctl and active display)");
         Box::new(GnomeManager)
     } else {
-        info!("No supported Desktop Environment detected (XDG_CURRENT_DESKTOP='{}')", desktop);
+        info!("No supported Desktop Environment detected or no active display found.");
         Box::new(NullManager)
     }
 }
