@@ -69,6 +69,7 @@ struct KdeManager;
 impl DisplayManager for KdeManager {
     fn set_single_monitor(&self, scale: &str) {
         let args = vec![
+            format!("output.eDP-1.position.0,0"),
             format!("output.eDP-1.scale.{}", scale),
             "output.eDP-2.disable".to_string(),
         ];
@@ -93,12 +94,18 @@ impl DisplayManager for KdeManager {
     }
 
     fn set_dual_monitor(&self, scale: &str) {
+        let physical_height = get_edp1_physical_height();
+        let scale_f: f32 = scale.parse().unwrap_or(1.0);
+        let logical_height = (physical_height as f32 / scale_f).round() as i32;
+
         let args = vec![
+            format!("output.eDP-1.position.0,0"),
             format!("output.eDP-1.scale.{}", scale),
             "output.eDP-2.enable".to_string(),
             format!("output.eDP-2.scale.{}", scale),
+            format!("output.eDP-2.position.0,{}", logical_height),
         ];
-        info!("Switching to dual monitor mode (scale: {})", scale);
+        info!("Switching to dual monitor mode (scale: {}, eDP-1 height: {})", scale, logical_height);
         debug!("Executing 'kscreen-doctor {}'", args.join(" "));
         
         match Command::new("kscreen-doctor")
@@ -116,6 +123,43 @@ impl DisplayManager for KdeManager {
                 error!("Failed to execute kscreen-doctor: {}", e);
             }
         }
+    }
+}
+
+/// Helper function to retrieve the physical height of eDP-1 via `kscreen-doctor -o`.
+/// This is used to calculate the logical position of eDP-2.
+fn get_edp1_physical_height() -> i32 {
+    match Command::new("kscreen-doctor").arg("-o").output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for section in stdout.split("Output: ") {
+                if section.contains("eDP-1") {
+                    let mut current_height = 0;
+                    let mut current_scale = 1.0;
+                    for line in section.lines() {
+                        if line.contains("Geometry:") {
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            if parts.len() >= 3 {
+                                if let Some(h_str) = parts[2].split('x').nth(1) {
+                                    current_height = h_str.parse().unwrap_or(0);
+                                }
+                            }
+                        }
+                        if line.contains("Scale:") {
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            if parts.len() >= 2 {
+                                current_scale = parts[1].parse().unwrap_or(1.0);
+                            }
+                        }
+                    }
+                    if current_height > 0 {
+                        return (current_height as f32 * current_scale).round() as i32;
+                    }
+                }
+            }
+            1800 // Fallback for Zenbook Duo
+        }
+        Err(_) => 1800,
     }
 }
 
@@ -147,10 +191,16 @@ impl DisplayManager for NullManager {
 fn get_display_manager() -> Box<dyn DisplayManager> {
     let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_uppercase();
     if desktop.contains("KDE") {
-        info!("Initializing KDE Display Manager");
+        info!("Initializing KDE Display Manager (detected via env)");
         Box::new(KdeManager)
     } else if desktop.contains("GNOME") {
-        info!("Initializing GNOME Display Manager");
+        info!("Initializing GNOME Display Manager (detected via env)");
+        Box::new(GnomeManager)
+    } else if std::path::Path::new("/usr/bin/kscreen-doctor").exists() {
+        info!("Initializing KDE Display Manager (detected via kscreen-doctor)");
+        Box::new(KdeManager)
+    } else if std::path::Path::new("/usr/bin/gdctl").exists() {
+        info!("Initializing GNOME Display Manager (detected via gdctl)");
         Box::new(GnomeManager)
     } else {
         info!("No supported Desktop Environment detected (XDG_CURRENT_DESKTOP='{}')", desktop);

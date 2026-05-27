@@ -31,7 +31,7 @@ fn ensure_not_root() {
 /// ```
 pub fn install() {
     // 0. Pre-flight checks: Distro and DE
-    let desktop_env = check_requirements();
+    check_requirements();
 
     // Check if we are root.
     ensure_not_root();
@@ -120,12 +120,11 @@ After=graphical-session.target
 ExecStart={}
 Restart=always
 RestartSec=5
-Environment=XDG_CURRENT_DESKTOP={}
 
 [Install]
 WantedBy=default.target
 "#,
-        install_path.display(), desktop_env
+        install_path.display()
     );
 
     match fs::write(&service_path, service_content) {
@@ -224,8 +223,9 @@ pub fn uninstall() {
 
     println!("Uninstalling Zenbook Duo Linux Tools...");
 
-    // 1. Delete the udev rule
+    // 1. Delete the udev rules
     crate::udev_utils::remove_touch_rule();
+    crate::udev_utils::remove_keyboard_rule();
 
     // 2. Stop and disable the systemd user service
     println!("Stopping and disabling systemd user service...");
