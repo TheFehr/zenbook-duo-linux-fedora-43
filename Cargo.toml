@@ -21,3 +21,4 @@ toml = "0.8"
 udev = "0.7.0"
 clap = { version = "4.6.0", features = ["derive"] }
 tempfile = "3.10"
+zbus = { version = "4", features = ["tokio"] }

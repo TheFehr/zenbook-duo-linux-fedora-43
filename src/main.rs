@@ -1,6 +1,7 @@
 mod config;
 mod install;
 mod monitor_handling;
+mod session_monitor;
 mod udev_utils;
 mod usb;
 
@@ -91,7 +92,13 @@ async fn main() {
                 usb::monitor_special_keys(config_keys).await;
             }));
 
-            info!("Monitoring started (USB events & Special keys)...");
+            // 3. Session Unlock Watcher (re-apply monitor layout after screen lock)
+            let config_session = config.clone();
+            watchers.push(tokio::task::spawn_local(async move {
+                session_monitor::monitor_session_unlock(config_session).await;
+            }));
+
+            info!("Monitoring started (USB events, Special keys & Session unlock)...");
 
             watchers.for_each(|_| async {}).await;
         })
